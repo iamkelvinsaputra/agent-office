@@ -13,6 +13,8 @@ from common import REGISTRY_DIR, STATE_DIR, read_json, session_name  # noqa: E40
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VENDOR_NAME = re.compile(r"^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*\.js$")
+JS_NAME = re.compile(r"^(themes/)?[A-Za-z0-9_-]+\.js$")
+THEMES = ("office", "fantasy")
 HOME = os.path.expanduser("~")
 PORT = int(os.environ.get("AGENT_OFFICE_PORT", "47823"))
 
@@ -131,26 +133,51 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
             with open(os.path.join(HERE, "office.html"), "rb") as f:
-                self._send(200, "text/html; charset=utf-8", f.read())
+                page = f.read().replace(b"__DEFAULT_THEME__", self.server.default_theme.encode())
+            self._send(200, "text/html; charset=utf-8", page)
         elif path == "/api/state":
             now = time.time()
             body = json.dumps({"now": now, "sessions": sessions(now)}).encode()
             self._send(200, "application/json", body)
-        elif path.startswith("/vendor/") and VENDOR_NAME.match(path[8:]) and os.path.isfile(os.path.join(HERE, "vendor", path[8:])):
-            # only plain file names, so nothing outside vendor/ can be read
-            with open(os.path.join(HERE, "vendor", path[8:]), "rb") as f:
-                self._send(200, "text/javascript; charset=utf-8", f.read())
+        elif path.startswith("/vendor/") and VENDOR_NAME.match(path[8:]):
+            self._send_js(os.path.join(HERE, "vendor", path[8:]))
+        elif path.startswith("/js/") and JS_NAME.match(path[4:]):
+            self._send_js(os.path.join(HERE, "js", path[4:]))
         else:
             self._send(404, "text/plain", b"not found")
+
+    def _send_js(self, fp):
+        # names are checked against a strict pattern first, so nothing outside these folders can be read
+        if not os.path.isfile(fp):
+            return self._send(404, "text/plain", b"not found")
+        with open(fp, "rb") as f:
+            self._send(200, "text/javascript; charset=utf-8", f.read())
 
     def log_message(self, *args):
         pass
 
 
+def default_theme():
+    """--theme NAME (or AGENT_OFFICE_THEME) picks the theme for browsers that haven't chosen one yet."""
+    theme = os.environ.get("AGENT_OFFICE_THEME", "office")
+    args = sys.argv[1:]
+    for i, a in enumerate(args):
+        if a == "--theme" and i + 1 < len(args):
+            theme = args[i + 1]
+        elif a.startswith("--theme="):
+            theme = a.split("=", 1)[1]
+    if theme not in THEMES:
+        print("Unknown theme %r; choose one of: %s" % (theme, ", ".join(THEMES)))
+        sys.exit(2)
+    return theme
+
+
 def main():
     url = "http://127.0.0.1:%d/" % PORT
+    theme = default_theme()
     try:
         server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+        server.default_theme = theme
     except OSError:
         print("Agent Office is already running: %s" % url)
         if "--no-open" not in sys.argv:
