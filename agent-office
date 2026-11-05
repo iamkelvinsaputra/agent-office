@@ -1,0 +1,4 @@
+#!/bin/sh
+# Start the Agent Office page server (local only) and open it in the browser.
+DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+exec /usr/bin/python3 "$DIR/server.py" "$@"
