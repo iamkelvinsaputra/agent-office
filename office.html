@@ -133,66 +133,117 @@ function deskPos(slot) {
 }
 function chairPos(slot) { const d = deskPos(slot); return { x: d.x + 0.8, y: d.y + 1.15 }; }
 const DOOR = { x: 0.15, y: 0.8 }, AISLE_X = 0.7;
-function pathIn(slot) {
-  const c = chairPos(slot);
-  return [{ ...DOOR }, { x: AISLE_X, y: DOOR.y }, { x: AISLE_X, y: c.y }, { x: c.x, y: c.y }];
-}
 
 // ---------- characters ----------
 const entities = new Map();   // id -> entity
 function hash(s) { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; }
-const SHIRTS = ["#e8655a", "#4f8fe8", "#45b07a", "#d9a43a", "#9b6ee0", "#e07bb0", "#3fb5c4", "#ef8a3c"];
-const SKINS = ["#f1c9a5", "#e0ac83", "#c68a5e", "#9a6440", "#f6d7bf"];
-const HAIRS = ["#2b2220", "#5a3a22", "#c9a25a", "#1c1c24", "#8a4a2a", "#d8d2c8"];
+const pick = (arr, h) => arr[h % arr.length];
+const HOODIES = ["#e8655a", "#4f8fe8", "#45b07a", "#d9a43a", "#9b6ee0", "#e07bb0", "#3fb5c4", "#ef8a3c", "#f2efe6"];
+const SKINS = ["#f6d7bf", "#f1c9a5", "#e0ac83", "#c68a5e", "#9a6440"];
+const HAIRS = ["#2b2220", "#5a3a22", "#8a4a2a", "#c9a25a", "#1c1c24", "#b8643a", "#e6dccb"];
+const SKIRTS = ["#f2a7b8", "#b9c7f0", "#c8b3ea", "#f5c99b", "#a8dcc6", "#3d4660"];
+const PANTS = ["#3d4660", "#2f3a4a", "#55607a", "#6b5544", "#3f5a4e"];
+const WOMAN_HAIR = ["ponytail", "bun", "long", "bob"], MAN_HAIR = ["short", "spiky", "curly"];
+const ANIMALS = ["bunny", "cat", "fox"];
+
+// Everything about how a character looks comes from its session id, so it never changes on reload.
+function makeLook(id) {
+  const h = k => hash(id + "#" + k);
+  const woman = ((hash(id) >>> 12) & 1) === 1;
+  return {
+    woman, hoodie: pick(HOODIES, h(1)), skin: pick(SKINS, h(2)), hair: pick(HAIRS, h(3)),
+    style: pick(woman ? WOMAN_HAIR : MAN_HAIR, h(4)), bottom: pick(woman ? SKIRTS : PANTS, h(5)),
+    animal: h(6) % 3 === 0 ? pick(ANIMALS, h(7)) : null, seed: (h(8) % 1000) / 1000,
+  };
+}
 
 function freeSlot() {
   const used = new Set([...entities.values()].map(e => e.slot));
   let i = 0; while (used.has(i)) i++; return i;
 }
+// Walk along a lane just behind the row of chairs so nobody walks through a seated colleague.
+const laneY = slot => chairPos(slot).y + 0.7;
+function enterPath(e) {
+  const c = chairPos(e.slot), lane = laneY(e.slot);
+  if (Math.abs(e.y - lane) < 0.05) return [{ x: c.x, y: lane }, c];
+  return [{ x: AISLE_X, y: e.y }, { x: AISLE_X, y: lane }, { x: c.x, y: lane }, c];
+}
+function startLeaving(e) {
+  const lane = laneY(e.slot);
+  e.phase = "leaving"; e.walkT = 0;
+  e.path = [{ x: e.x, y: lane }, { x: AISLE_X, y: lane }, { x: AISLE_X, y: DOOR.y }, { ...DOOR }];
+}
 function syncEntities(sessions) {
-  const seen = new Set();
+  const seen = new Set(), nowT = performance.now() / 1000;
   for (const s of sessions) {
     seen.add(s.id);
     let e = entities.get(s.id);
-    if (!e || e.phase === "leaving") {
-      if (e) { e.phase = "seated"; e.path = []; }  // came back while walking out
-      else {
-        const h = hash(s.id), slot = freeSlot();
-        e = { id: s.id, slot, phase: "entering", path: pathIn(slot), x: DOOR.x, y: DOOR.y,
-              shirt: SHIRTS[h % SHIRTS.length], skin: SKINS[(h >>> 4) % SKINS.length],
-              hair: HAIRS[(h >>> 8) % HAIRS.length], seed: (h % 1000) / 1000,
-              woman: ((h >>> 12) & 1) === 1 };
-        entities.set(s.id, e);
-      }
+    if (!e) {
+      e = { id: s.id, slot: freeSlot(), phase: "entering", path: null, x: DOOR.x, y: DOOR.y, look: makeLook(s.id),
+            sit: 0, walkT: 0, stride: 0, front: 1, side: 0, stateAt: -99 };
+      entities.set(s.id, e);
+    } else if (e.phase === "standing") {
+      e.phase = "sitting";                      // changed its mind on the way out
+    } else if (e.phase === "leaving") {
+      e.phase = "entering"; e.walkT = 0; e.path = enterPath(e);
     }
+    if (e.data && e.data.state !== s.state && e.phase === "seated") e.stateAt = nowT;
     e.data = s;
   }
   for (const e of entities.values()) {
-    if (!seen.has(e.id) && e.phase !== "leaving") {
-      e.phase = "leaving";
-      e.path = [{ x: AISLE_X, y: e.y }, { x: AISLE_X, y: DOOR.y }, { ...DOOR }];
-    }
+    if (seen.has(e.id) || e.phase === "leaving" || e.phase === "standing") continue;
+    if (e.phase === "seated" || e.phase === "sitting") e.phase = "standing";
+    else startLeaving(e);
   }
   const maxSlot = Math.max(-1, ...[...entities.values()].map(e => e.slot));
   const before = layout.cols + "x" + layout.rows;
   computeLayout(maxSlot + 1);
-  if (layout.cols + "x" + layout.rows !== before) {
-    for (const e of entities.values()) if (e.phase === "seated") Object.assign(e, chairPos(e.slot));
+  const resized = layout.cols + "x" + layout.rows !== before;
+  for (const e of entities.values()) {
+    if (e.phase === "seated" || e.phase === "sitting" || e.phase === "standing") { if (resized) Object.assign(e, chairPos(e.slot)); }
+    else if (e.phase === "entering" && (resized || !e.path)) e.path = enterPath(e);
+    else if (e.phase === "leaving" && resized) startLeaving(e);
   }
 }
 
-const SPEED = 2.2; // tiles per second
+const SPEED = 1.9;      // tiles per second at full stride
+const SIT_SPEED = 2.2;  // sit-down / stand-up transitions per second
+function approach(v, target, rate, dt) { return v + (target - v) * Math.min(1, rate * dt); }
 function stepEntities(dt) {
   for (const e of [...entities.values()]) {
-    if (e.phase === "seated") continue;
-    let left = SPEED * dt;
+    if (e.phase === "seated") { e.sit = 1; e.front = approach(e.front, 0, 8, dt); continue; }
+    if (e.phase === "sitting") {
+      e.sit = reduceMotion ? 1 : Math.min(1, e.sit + dt * SIT_SPEED);
+      e.front = approach(e.front, 0, 8, dt); e.side = approach(e.side, 0, 6, dt);
+      if (e.sit >= 1) e.phase = "seated";
+      continue;
+    }
+    if (e.phase === "standing") {
+      e.sit = reduceMotion ? 0 : Math.max(0, e.sit - dt * SIT_SPEED);
+      if (e.sit <= 0) startLeaving(e);
+      continue;
+    }
+    // walking: ease in at the start of a trip and ease out on arrival
+    e.walkT += dt;
+    let remain = 0, px = e.x, py = e.y;
+    for (const p of e.path) { remain += Math.hypot(p.x - px, p.y - py); px = p.x; py = p.y; }
+    const ease = Math.min(1, 0.3 + e.walkT * 1.6) * Math.min(1, 0.3 + remain * 1.4);
+    let left = SPEED * ease * dt;
+    const ox = e.x, oy = e.y;
     while (left > 0 && e.path.length) {
       const t = e.path[0], dx = t.x - e.x, dy = t.y - e.y, dist = Math.hypot(dx, dy);
       if (dist <= left) { e.x = t.x; e.y = t.y; e.path.shift(); left -= dist; }
       else { e.x += dx / dist * left; e.y += dy / dist * left; left = 0; }
     }
+    const mx = e.x - ox, my = e.y - oy, len = Math.hypot(mx, my);
+    if (len > 1e-6) {
+      e.stride += len * 9;
+      const sx = (mx - my) / len, sy = (mx + my) / len;   // direction on screen
+      e.front = approach(e.front, sy > 0 ? 1 : 0, 7, dt);  // walking down the screen = facing us
+      e.side = approach(e.side, Math.sign(sx), 6, dt);
+    }
     if (!e.path.length) {
-      if (e.phase === "entering") e.phase = "seated";
+      if (e.phase === "entering") { e.phase = "sitting"; e.sit = 0; }
       else if (e.phase === "leaving") entities.delete(e.id);
     }
   }
@@ -232,26 +283,93 @@ function drawRoom(P, t) {
   // door on the left wall
   poly([[0.02, DOOR.y - 0.45, 0], [0.02, DOOR.y + 0.45, 0], [0.02, DOOR.y + 0.45, 1.75], [0.02, DOOR.y - 0.45, 1.75]], shade(P.desk, 0.7));
   poly([[0.03, DOOR.y - 0.38, 0], [0.03, DOOR.y + 0.38, 0], [0.03, DOOR.y + 0.38, 1.68], [0.03, DOOR.y - 0.38, 1.68]], shade(P.desk, 0.85));
-  // window on the back wall: sky follows your local time
-  const hour = new Date().getHours(), day = hour >= 6 && hour < 18;
+  // window on the back wall: the sky follows your local time
+  const now = new Date(), hr = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
   const wx = Math.max(2.2, W * 0.5), ww = Math.min(2.4, W - wx - 0.6);
   poly([[wx - 0.08, 0.02, 0.92], [wx + ww + 0.08, 0.02, 0.92], [wx + ww + 0.08, 0.02, 2.18], [wx - 0.08, 0.02, 2.18]], P.trim);
-  poly([[wx, 0.03, 1.0], [wx + ww, 0.03, 1.0], [wx + ww, 0.03, 2.1], [wx, 0.03, 2.1]], day ? "#9fd3f5" : "#1c2748");
-  if (!day) for (let k = 0; k < 6; k++) {
-    const sx = wx + ((k * 0.37 + 0.2) % 1) * ww, sz = 1.2 + ((k * 0.53) % 1) * 0.8;
-    poly([[sx, 0.04, sz], [sx + 0.04, 0.04, sz], [sx + 0.04, 0.04, sz + 0.04], [sx, 0.04, sz + 0.04]], "#f4f1d0");
-  } else poly([[wx + ww * 0.65, 0.04, 1.65], [wx + ww * 0.85, 0.04, 1.65], [wx + ww * 0.85, 0.04, 1.85], [wx + ww * 0.65, 0.04, 1.85]], "#fff2b0");
+  wallPlane(wx, 0.03, 1.0, () => drawSky(hr, ww, 1.1, t));
   poly([[wx + ww / 2 - 0.03, 0.04, 1.0], [wx + ww / 2 + 0.03, 0.04, 1.0], [wx + ww / 2 + 0.03, 0.04, 2.1], [wx + ww / 2 - 0.03, 0.04, 2.1]], P.trim);
-  // wall clock
-  const cx = 1.3, cz = 1.85, [csx, csy] = iso(cx, 0.03, cz);
-  ctx.save(); ctx.translate(csx, csy); ctx.transform(1, -0.5, 0, 1, 0, 0);
-  ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2); ctx.fillStyle = "#fbfbf7"; ctx.fill();
-  ctx.strokeStyle = P.trim; ctx.lineWidth = 2; ctx.stroke();
-  const now = new Date(), ha = ((now.getHours() % 12) + now.getMinutes() / 60) / 12 * Math.PI * 2, ma = now.getMinutes() / 60 * Math.PI * 2;
-  ctx.strokeStyle = "#333"; ctx.lineWidth = 1.6;
-  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.sin(ha) * 6, -Math.cos(ha) * 6); ctx.stroke();
-  ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.sin(ma) * 9, -Math.cos(ma) * 9); ctx.stroke();
+  box(wx - 0.12, 0.02, 0.86, ww + 0.24, 0.12, 0.06, shade(P.trim, 1.08));   // sill
+  // wall clock, flat on the wall, showing your local time
+  wallPlane(1.3, 0.03, 1.8, () => drawClock(now, P));
+}
+
+// Draw in the back wall's own plane: u runs along the wall (tiles), v runs up (z units).
+function wallPlane(u, y, z, fn) {
+  const [sx, sy] = iso(u, y, z);
+  ctx.save(); ctx.transform(HX, HY, 0, -ZU, sx, sy); fn(); ctx.restore();
+}
+const SKY = [[0, "#0b1430", "#1d2a52"], [4.8, "#0b1430", "#1d2a52"], [6, "#5b6fb8", "#f6b1a0"], [7.5, "#5fb0ea", "#c4e6fb"],
+             [16.5, "#5fb0ea", "#c4e6fb"], [18.3, "#4a4f9a", "#f59a6a"], [19.6, "#0b1430", "#1d2a52"], [24, "#0b1430", "#1d2a52"]];
+function skyAt(hr) {
+  let i = 0; while (i < SKY.length - 2 && SKY[i + 1][0] <= hr) i++;
+  const [h0, a0, b0] = SKY[i], [h1, a1, b1] = SKY[i + 1], f = Math.min(1, Math.max(0, (hr - h0) / (h1 - h0)));
+  return [mix(a0, a1, f), mix(b0, b1, f)];
+}
+function drawSky(hr, w, h, t) {
+  const m = reduceMotion ? 0 : 1;
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.clip();
+  const [top, bot] = skyAt(hr), g = ctx.createLinearGradient(0, h, 0, 0);
+  g.addColorStop(0, top); g.addColorStop(1, bot);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  const night = hr < 4.8 || hr > 19.6 ? 1 : hr < 6 ? 1 - (hr - 4.8) / 1.2 : hr > 18.3 ? (hr - 18.3) / 1.3 : 0;
+  if (night > 0) for (let k = 0; k < 11; k++) {
+    ctx.globalAlpha = night * (0.55 + 0.45 * Math.sin(t * 1.3 * m + k * 2.1));
+    circ(((k * 0.379 + 0.07) % 1) * w, h * (0.35 + ((k * 0.537) % 1) * 0.6), 0.022, "#fff6d8");
+  }
+  ctx.globalAlpha = 1;
+  // sun or moon arcing across the window
+  const body = (p, r, col, glow) => {
+    const u = -0.15 + p * (w + 0.3), v = 0.05 + Math.sin(p * Math.PI) * h * 0.8;
+    const gg = ctx.createRadialGradient(u, v, 0, u, v, r * 3.2);
+    gg.addColorStop(0, glow); gg.addColorStop(1, "rgba(255,255,255,0)");
+    circ(u, v, r * 3.2, gg); circ(u, v, r, col);
+    return [u, v];
+  };
+  if (hr >= 5.6 && hr <= 18.8) {
+    const p = (hr - 5.6) / 13.2, low = 1 - Math.sin(p * Math.PI);
+    body(p, 0.13, mix("#fff3b8", "#ffb070", low * 0.8), "rgba(255,236,170,0.55)");
+  }
+  if (hr >= 18.6 || hr <= 5.8) {
+    const [u, v] = body(((hr - 18.6 + 24) % 24) / 11.2, 0.11, "#f3f1e4", "rgba(220,225,255,0.35)");
+    circ(u + 0.05, v + 0.03, 0.095, top);   // crescent
+  }
+  // drifting clouds by day
+  if (night < 1) {
+    ctx.globalAlpha = 0.85 * (1 - night);
+    for (let k = 0; k < 2; k++) {
+      const u = ((t * 0.012 * m + k * 0.55 + 0.2) % 1.3) * (w + 0.8) - 0.5, v = h * (0.55 + k * 0.22);
+      oval(u, v, 0.2, 0.07, "#ffffff"); oval(u + 0.13, v + 0.04, 0.14, 0.07, "#ffffff"); oval(u - 0.12, v + 0.02, 0.12, 0.05, "#ffffff");
+    }
+    ctx.globalAlpha = 1;
+  }
+  // glass glint
+  ctx.globalAlpha = 0.12; ctx.beginPath();
+  ctx.moveTo(w * 0.08, 0); ctx.lineTo(w * 0.2, 0); ctx.lineTo(w * 0.42, h); ctx.lineTo(w * 0.3, h); ctx.closePath();
+  ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.globalAlpha = 1;
   ctx.restore();
+}
+function drawClock(now, P) {
+  circ(0, 0, 0.4, P.trim);
+  const g = ctx.createRadialGradient(-0.1, 0.12, 0.02, 0, 0, 0.36);
+  g.addColorStop(0, "#ffffff"); g.addColorStop(1, "#e9e7e0");
+  circ(0, 0, 0.345, g);
+  ctx.lineCap = "round"; ctx.strokeStyle = "#4a4f5c";
+  for (let i = 0; i < 12; i++) {
+    const a = i / 12 * Math.PI * 2, r0 = i % 3 ? 0.27 : 0.23;
+    ctx.lineWidth = i % 3 ? 0.018 : 0.035;
+    ctx.beginPath(); ctx.moveTo(Math.sin(a) * r0, Math.cos(a) * r0); ctx.lineTo(Math.sin(a) * 0.31, Math.cos(a) * 0.31); ctx.stroke();
+  }
+  const s = now.getSeconds() + now.getMilliseconds() / 1000, mi = now.getMinutes() + s / 60, h = (now.getHours() % 12) + mi / 60;
+  const hand = (frac, len, w, col) => {
+    const a = frac * Math.PI * 2;
+    ctx.lineWidth = w; ctx.strokeStyle = col;
+    ctx.beginPath(); ctx.moveTo(-Math.sin(a) * 0.04, -Math.cos(a) * 0.04); ctx.lineTo(Math.sin(a) * len, Math.cos(a) * len); ctx.stroke();
+  };
+  hand(h / 12, 0.17, 0.045, "#2b2f3a");
+  hand(mi / 60, 0.25, 0.03, "#2b2f3a");
+  hand((reduceMotion ? Math.floor(s) : s) / 60, 0.28, 0.012, "#e0503c");
+  circ(0, 0, 0.025, "#2b2f3a");
 }
 
 function decor(P) {
@@ -303,52 +421,257 @@ function drawDesk(slot, P, e, t) {
   box(x + 1.25, y + 0.3, 0.58, 0.14, 0.14, 0.14, "#f2efe9", { top: "#6b4a2e" });
 }
 
-function drawPerson(e, P, t) {
-  const st = e.phase === "seated" ? e.data.state : "walking";
-  const seated = e.phase === "seated";
-  const m = reduceMotion ? 0 : 1;
-  let { x, y } = e;
-  const lean = st === "your_turn" ? 0.08 : 0;
-  const bob = st === "working" ? Math.sin(t * 10 + e.seed * 6) * 0.015 * m : 0;
-  const zBase = seated ? 0.38 : 0.42;
+// ---------- chibi figures (drawn upright in screen space, 1 unit = 1 world pixel) ----------
+function mix(hex, to, a) {
+  const [r, g, b] = hexToRgb(hex), [r2, g2, b2] = hexToRgb(to);
+  return `rgb(${Math.round(r + (r2 - r) * a)},${Math.round(g + (g2 - g) * a)},${Math.round(b + (b2 - b) * a)})`;
+}
+function circ(x, y, r, fill) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill(); }
+function oval(x, y, rx, ry, fill, rot = 0) { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill(); }
+function limb(pts, w, col) {
+  ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+  ctx.lineWidth = w; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = col; ctx.stroke();
+}
+function tri(pts, fill) { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); }
+// soft "figurine" shading: light from the top-left
+function ballGrad(x, y, r, col) {
+  const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.45, r * 0.1, x, y, r * 1.05);
+  g.addColorStop(0, mix(col, "#ffffff", 0.38)); g.addColorStop(0.55, col); g.addColorStop(1, shade(col, 0.72));
+  return g;
+}
+function sideGrad(w, col) {
+  const g = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
+  g.addColorStop(0, mix(col, "#ffffff", 0.22)); g.addColorStop(0.45, col); g.addColorStop(1, shade(col, 0.74));
+  return g;
+}
+const bump = (t, period, dur) => { const p = ((t % period) + period) % period; return p < dur ? Math.sin(p / dur * Math.PI) : 0; };
+const R = 10.5;                                   // head radius
+const ANIMAL_COL = { bunny: "#f4efe9", fox: "#e9893c" };
 
-  if (seated) { // chair seat + base
-    box(x - 0.06, y - 0.06, 0, 0.12, 0.12, 0.3, "#20242c");
-    box(x - 0.28, y - 0.22, 0.3, 0.56, 0.5, 0.08, P.chair);
-  } else {      // walking legs
-    const swing = Math.sin(t * 12 + e.seed * 6) * 0.08 * m;
-    box(x - 0.15, y - 0.08 + swing, 0, 0.12, 0.13, 0.42, "#2f3646");
-    box(x + 0.03, y - 0.08 - swing, 0, 0.12, 0.13, 0.42, "#2f3646");
-  }
-  const by = y - 0.12 + lean;
-  // arms
-  if (st === "working") {
-    const a = Math.sin(t * 14 + e.seed * 9) * 0.03 * m;
-    box(x - 0.3, by - 0.25, zBase + 0.2 + a, 0.1, 0.3, 0.1, e.shirt);
-    box(x + 0.2, by - 0.25, zBase + 0.2 - a, 0.1, 0.3, 0.1, e.shirt);
-  } else if (st === "needs_you") {
-    const wave = Math.sin(t * 8) * 0.06 * m;
-    box(x - 0.3, by + 0.02, zBase + 0.1, 0.1, 0.12, 0.32, e.shirt);
-    box(x + 0.22 + wave, by + 0.02, zBase + 0.42, 0.1, 0.12, 0.5, e.shirt);
-    box(x + 0.22 + wave, by + 0.02, zBase + 0.92, 0.1, 0.12, 0.1, e.skin);
+function drawPerson(e, P, t) {
+  const L = e.look, m = reduceMotion ? 0 : 1, tt = t + L.seed * 10;
+  const walking = e.phase === "entering" || e.phase === "leaving";
+  const st = e.phase === "seated" ? e.data.state : null;
+  const sit = e.sit, front = e.front > 0.5;
+  const since = t - e.stateAt;
+  const stretching = st === "your_turn" && since < 1.9 && m;
+  const relaxed = st === "your_turn" && !stretching;
+  const wTop = L.woman ? 12 : 14, wBot = L.woman ? 14.5 : 16;
+  const legLen = 8 * (1 - sit), hipPx = 8 + 3.4 * sit;
+  const breathe = 1 + 0.02 * Math.sin(tt * 2.1) * m;
+  const SH = -13 * breathe * (stretching ? 1 + 0.06 * Math.sin(Math.min(1, since / 1.9) * Math.PI) : 1);
+  const hop = walking ? Math.abs(Math.sin(e.stride)) * 1.6 * m : 0;
+  let headTilt = 0.13 * bump(tt, 8.5, 1.5) * m, nod = 0;
+  if (st === "working") nod = Math.sin(tt * 5) * 0.5 * m;
+  if (st === "needs_you") headTilt = 0.12;
+  if (relaxed) headTilt = -0.1;
+  const cy = SH - 9 + nod;                       // head centre
+  const shoulder = s => [s * (wTop / 2 - 1.5), SH + 2.5];
+
+  // soft contact shadow on the floor
+  const [gx, gy] = iso(e.x, e.y, 0);
+  ctx.save(); ctx.translate(gx, gy); ctx.scale(1, 0.5);
+  const sg = ctx.createRadialGradient(0, 0, 0, 0, 0, 13);
+  sg.addColorStop(0, "rgba(0,0,0,0.3)"); sg.addColorStop(1, "rgba(0,0,0,0)");
+  circ(0, 0, 13, sg); ctx.restore();
+
+  const [ax, ay] = iso(e.x, e.y - 0.12 * sit, hipPx / ZU);
+  e.anchor = [ax, ay]; e.tt = tt;
+  e.head = [e.x, e.y - 0.12 * sit, (hipPx - cy + R + (L.animal === "bunny" ? 9 : L.animal ? 4 : 2)) / ZU];
+  ctx.save();
+  ctx.translate(ax, ay - hop);
+  ctx.rotate(relaxed ? -0.06 : walking ? e.side * 0.05 : 0);
+  ctx.scale(0.84 + 0.16 * Math.abs(e.front * 2 - 1), 1);   // squash a little while turning around
+
+  const sleeve = shade(L.hoodie, 0.92), skin = L.skin;
+  const arm = (s, pts) => { limb([shoulder(s), ...pts], 3.8, sleeve); const [hx, hy] = pts[pts.length - 1]; circ(hx, hy, 1.9, skin); };
+  const swing = s => walking ? Math.sin(e.stride + (s > 0 ? Math.PI : 0)) * 1.6 * m : 0;
+  const armsDown = () => { for (const s of [-1, 1]) arm(s, [[s * (wBot / 2 + 0.8), SH * 0.45 + swing(s) * 0.5], [s * (wBot / 2 + 0.6), -2 + swing(s)]]); };
+
+  const legs = () => {
+    if (legLen < 0.6) return;
+    for (const s of [-1, 1]) {
+      const lift = walking ? Math.max(0, Math.sin(e.stride + (s > 0 ? 0 : Math.PI))) * 2.2 * m : 0;
+      const fy = legLen - lift;
+      limb([[s * 3, -1], [s * 3, fy - 1]], L.woman ? 3.2 : 4.2, L.woman ? skin : L.bottom);
+      oval(s * 3.1, fy - 0.2, 2.6, 1.6, L.woman ? "#f7f3ee" : "#3a3f4c");
+    }
+    if (L.woman) {   // skirt
+      ctx.beginPath(); ctx.moveTo(-6.5, -1.5); ctx.lineTo(6.5, -1.5); ctx.lineTo(8.8, 4.2);
+      ctx.quadraticCurveTo(0, 5.8, -8.8, 4.2); ctx.closePath(); ctx.fillStyle = sideGrad(17, L.bottom); ctx.fill();
+    } else { ctx.fillStyle = L.bottom; ctx.fillRect(-6.8, -1.5, 13.6, 3); }
+  };
+
+  const body = () => {
+    ctx.beginPath();
+    ctx.moveTo(-wBot / 2, 0); ctx.lineTo(wBot / 2, 0);
+    ctx.quadraticCurveTo(wBot / 2 + 0.6, SH * 0.5, wTop / 2, SH + 3);
+    ctx.quadraticCurveTo(wTop / 2, SH, wTop / 2 - 3.5, SH);
+    ctx.lineTo(-wTop / 2 + 3.5, SH);
+    ctx.quadraticCurveTo(-wTop / 2, SH, -wTop / 2, SH + 3);
+    ctx.quadraticCurveTo(-wBot / 2 - 0.6, SH * 0.5, -wBot / 2, 0);
+    ctx.closePath(); ctx.fillStyle = sideGrad(wBot, L.hoodie); ctx.fill();
+    ctx.fillStyle = shade(L.hoodie, 0.85); ctx.fillRect(-wBot / 2 + 0.3, -1.6, wBot - 0.6, 1.8);   // hem
+    if (front) {
+      oval(0, SH + 0.8, 6.5, 2.6, shade(L.hoodie, 0.78));                                       // hood behind the neck
+      limb([[-1.8, SH + 2], [-2.1, SH + 6.5]], 0.8, "#f5f2ea"); limb([[1.8, SH + 2], [2.1, SH + 6.5]], 0.8, "#f5f2ea");
+      ctx.fillStyle = shade(L.hoodie, 0.88); roundRect(-5, -6.5, 10, 4.2, 1.6); ctx.fill();    // pocket
+    } else {
+      oval(0, SH + 3, 6.8, 4, shade(L.hoodie, 0.8));                                            // hood on the back
+      oval(0, SH + 2.4, 4.6, 2.4, shade(L.hoodie, 0.68));
+    }
+  };
+
+  const ears = () => {   // animal ears, on top of the head
+    if (!L.animal) return;
+    const col = ANIMAL_COL[L.animal] || L.hair, inner = "#f6b7c3";
+    for (const s of [-1, 1]) {
+      if (L.animal === "bunny") {
+        const wob = Math.sin(tt * 3 + s) * 0.06 * m;
+        oval(s * 3.8, cy - R - 5.5, 2.6, 7, col, s * 0.18 + wob);
+        if (front) oval(s * 3.8, cy - R - 5, 1.2, 5, inner, s * 0.18 + wob);
+      } else {
+        const big = L.animal === "fox" ? 1.35 : 1;
+        tri([[s * R * 0.9, cy - R * 0.4], [s * R * 0.22, cy - R * 0.92], [s * R * 0.72, cy - R - 5 * big]], col);
+        if (front) tri([[s * R * 0.74, cy - R * 0.55], [s * R * 0.38, cy - R * 0.85], [s * R * 0.68, cy - R - 3 * big]], inner);
+        if (L.animal === "fox") tri([[s * R * 0.62, cy - R - 2.2], [s * R * 0.8, cy - R - 2.6], [s * R * 0.72, cy - R - 6.75]], "#3a2a22");
+      }
+    }
+  };
+
+  // long hair hanging down; behind the body when facing us, over the back when not
+  const longHair = () => {
+    if (L.style !== "long") return;
+    const g = ballGrad(0, cy + 6, R + 8, L.hair), bot = cy + R + 11;
+    ctx.beginPath(); ctx.moveTo(-R - 1.2, cy); ctx.lineTo(-R - 1.6, bot - 2);
+    for (let k = 0; k < 4; k++) { const x0 = -R - 1.6 + k * (2 * R + 3.2) / 4; ctx.quadraticCurveTo(x0 + (2 * R + 3.2) / 8, bot + 2.4, x0 + (2 * R + 3.2) / 4, bot - 2); }
+    ctx.lineTo(R + 1.2, cy); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
+  };
+  const ponytail = () => {
+    if (L.style !== "ponytail") return;
+    const sway = Math.sin(tt * 2.2) * 1.2 * m + (walking ? Math.sin(e.stride) * 1.2 * m : 0);
+    const px = front ? R * 0.7 : 0, py = front ? cy - 2 : cy + R * 0.15;
+    oval(px + sway * 0.6, py + 7, 3.3, 7.2, ballGrad(px, py + 7, 7.2, L.hair), -sway * 0.06);
+    if (!front) circ(0, py, 1.7, L.hoodie);
+  };
+
+  const headBack = () => {
+    const g = ballGrad(0, cy, R + 1.5, L.hair);
+    oval(-R + 0.3, cy + 1.5, 2, 2.6, skin); oval(R - 0.3, cy + 1.5, 2, 2.6, skin);
+    circ(0, cy, R, ballGrad(0, cy, R, skin));
+    ctx.save();
+    if (L.style === "bob" || L.style === "long") {
+      circ(0, cy, R + 0.8, g);
+      if (L.style === "bob") { ctx.fillStyle = g; roundRect(-R - 1.4, cy - 1, 2 * R + 2.8, R + 1.4, 2.5); ctx.fill(); }
+    } else {
+      ctx.beginPath(); ctx.rect(-R - 6, cy - R - 8, 2 * R + 12, R * 1.5 + 8); ctx.clip();
+      circ(0, cy, R + 0.7, g);
+      ctx.restore(); ctx.save();
+      if (L.style === "spiky") for (let i = -2; i <= 2; i++) {
+        const a = -Math.PI / 2 + i * 0.42;
+        tri([[Math.cos(a - 0.2) * R, cy + Math.sin(a - 0.2) * R], [Math.cos(a + 0.2) * R, cy + Math.sin(a + 0.2) * R],
+             [Math.cos(a) * (R + 4), cy + Math.sin(a) * (R + 4)]], g);
+      }
+      if (L.style === "curly") for (let a = -Math.PI * 1.08; a <= 0.1; a += Math.PI / 7) circ(Math.cos(a) * (R - 0.6), cy + Math.sin(a) * (R - 0.6), 3.4, g);
+    }
+    ctx.restore();
+    ponytail();
+    if (L.style === "bun") circ(0, cy - R * 0.5, 4.8, ballGrad(0, cy - R * 0.5, 4.8, L.hair));
+    if (st === "needs_you") {   // turning to look over the shoulder: a peek of cheek and eye
+      oval(R * 0.78, cy + R * 0.32, 2.8, 3.8, skin);
+      oval(R * 0.9, cy + R * 0.2, 0.7, 1.3, "#2b2230");
+      oval(R * 0.62, cy + R * 0.55, 1.2, 0.7, "rgba(255,120,140,0.45)");
+    }
+  };
+
+  const headFront = () => {
+    const g = ballGrad(0, cy, R + 1.5, L.hair), fx = e.side * 1.3;
+    if (L.style === "bob") { ctx.fillStyle = g; roundRect(-R - 1.4, cy - 1, 2 * R + 2.8, R + 1.4, 2.5); ctx.fill(); }
+    if (!L.woman) { oval(-R + 0.3, cy + 2, 2, 2.6, skin); oval(R - 0.3, cy + 2, 2, 2.6, skin); }
+    circ(0, cy, R + 0.7, g);                                   // back of the hair
+    oval(0, cy + 1.6, R * 0.95, R * 0.86, ballGrad(0, cy + 1.6, R, skin));   // face
+    // fringe: hair above a scalloped line
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(-R - 2, cy - R - 6); ctx.lineTo(R + 2, cy - R - 6); ctx.lineTo(R + 2, cy - 1);
+    const n = L.style === "spiky" ? 5 : 4, seg = (2 * R + 4) / n;
+    for (let k = 0; k < n; k++) { const x0 = R + 2 - k * seg; ctx.quadraticCurveTo(x0 - seg / 2, cy + 3.2, x0 - seg, cy - 1); }
+    ctx.closePath(); ctx.clip();
+    circ(0, cy, R + 0.7, g);
+    ctx.restore();
+    if (L.woman) { oval(-R + 0.4, cy + 3, 2.2, 5.5, g); oval(R - 0.4, cy + 3, 2.2, 5.5, g); }   // side locks
+    if (L.style === "bun") circ(0, cy - R - 1, 4.6, ballGrad(0, cy - R - 1, 4.6, L.hair));
+    if (L.style === "curly") for (let a = -Math.PI * 0.95; a <= -0.05; a += Math.PI / 6) circ(Math.cos(a) * (R - 0.4), cy + Math.sin(a) * (R - 0.4), 3, g);
+    if (L.style === "spiky") for (let i = -2; i <= 2; i++) {
+      const a = -Math.PI / 2 + i * 0.42;
+      tri([[Math.cos(a - 0.2) * R, cy + Math.sin(a - 0.2) * R], [Math.cos(a + 0.2) * R, cy + Math.sin(a + 0.2) * R], [Math.cos(a) * (R + 4), cy + Math.sin(a) * (R + 4)]], g);
+    }
+    // face
+    const blink = m && (tt % 3.7) < 0.13, ey = cy + R * 0.3;
+    for (const s of [-1, 1]) {
+      oval(fx + s * R * 0.38, ey, 1.4, blink ? 0.35 : 2, "#2b2230");
+      if (!blink) circ(fx + s * R * 0.38 + 0.5, ey - 0.8, 0.55, "#ffffff");
+      oval(fx + s * R * 0.62, cy + R * 0.58, 1.9, 1.1, "rgba(255,120,140,0.45)");
+    }
+    ctx.beginPath(); ctx.arc(fx, cy + R * 0.6, 1.1, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.lineWidth = 0.7; ctx.strokeStyle = "#7a4a44"; ctx.stroke();
+  };
+
+  const head = () => {
+    ctx.save(); ctx.translate(0, SH + 1); ctx.rotate(headTilt); ctx.translate(0, -(SH + 1));
+    front ? headFront() : headBack();
+    ears();
+    ctx.restore();
+  };
+
+  // ---- assemble ----
+  if (front) {
+    if (sit < 0.5) drawTail(e, 4.5, -3, true);
+    if (L.style === "long") longHair();
+    if (L.style === "ponytail") ponytail();
+    legs(); body(); armsDown(); head();
   } else {
-    box(x - 0.3, by + 0.02, zBase + 0.08, 0.1, 0.14, 0.34, e.shirt);
-    box(x + 0.2, by + 0.02, zBase + 0.08, 0.1, 0.14, 0.34, e.shirt);
+    legs();
+    if (st === "working") {
+      for (const s of [-1, 1]) {   // elbows out, hands forward on the keyboard (hidden), alternating
+        const k = Math.sin(tt * 13 + (s > 0 ? Math.PI : 0)) * 0.9 * m;
+        limb([shoulder(s), [s * (wTop / 2 + 2.8), SH + 8 + k], [s * 2, SH + 6 + k]], 3.8, sleeve);
+      }
+    }
+    body();
+    if (st === "needs_you") {
+      arm(-1, [[-(wBot / 2 + 0.8), SH * 0.45], [-(wBot / 2 + 0.6), -2]]);
+    } else if (st !== "working" && !stretching && !relaxed) armsDown();
+    longHair();
+    head();
+    if (st === "needs_you") {     // waving
+      const a = -Math.PI / 2 + 0.5 * Math.sin(tt * 9) * m, [ex, ey] = [wTop / 2 + 5, SH - 3];
+      arm(1, [[ex, ey], [ex + Math.cos(a) * 7, ey + Math.sin(a) * 7]]);
+    } else if (stretching) {
+      for (const s of [-1, 1]) arm(s, [[s * 6.5, SH - 10], [s * 3.5, cy - R - 5]]);
+    } else if (relaxed) {         // hands behind the head
+      for (const s of [-1, 1]) arm(s, [[s * (R + 3.5), cy - 2], [s * 4, cy + 1]]);
+    }
+    if (sit < 0.5) drawTail(e, 0, -3, false);
   }
-  // torso, head, hair (we see their back)
-  if (e.woman) box(x - 0.18, by, zBase + bob, 0.36, 0.24, 0.46, e.shirt);  // narrower shoulders
-  else box(x - 0.2, by, zBase + bob, 0.4, 0.24, 0.46, e.shirt);
-  box(x - 0.15, by + 0.01, zBase + 0.47 + bob, 0.3, 0.26, 0.3, e.skin);
-  box(x - 0.16, by + 0.0, zBase + 0.68 + bob, 0.32, 0.28, 0.12, e.hair);
-  if (e.woman) { // long hair: sides plus a back panel falling past the shoulders
-    box(x - 0.18, by + 0.02, zBase + 0.42 + bob, 0.04, 0.24, 0.3, e.hair);
-    box(x + 0.14, by + 0.02, zBase + 0.42 + bob, 0.04, 0.24, 0.3, e.hair);
-    box(x - 0.17, by + 0.18, zBase + 0.26 + bob, 0.34, 0.11, 0.48, e.hair);
+  ctx.restore();
+}
+
+// Tails: drawn with the figure while walking, or hanging off the side of the chair when seated.
+function drawTail(e, ox, oy, behind) {
+  const L = e.look, m = reduceMotion ? 0 : 1, sway = Math.sin(e.tt * 2.6) * m;
+  if (!L.animal) return;
+  if (L.animal === "cat") {
+    ctx.beginPath(); ctx.moveTo(ox, oy);
+    ctx.bezierCurveTo(ox - 6, oy + 3, ox - 11, oy - 2 + sway, ox - 8 + sway * 1.5, oy - 10);
+    ctx.lineWidth = 2.4; ctx.lineCap = "round"; ctx.strokeStyle = L.hair; ctx.stroke();
+  } else if (L.animal === "fox") {
+    ctx.save(); ctx.translate(ox, oy); ctx.rotate((behind ? 0.8 : -0.8) + sway * 0.12);
+    oval(0, -6.5, 3.8, 7.5, ballGrad(0, -6.5, 7.5, ANIMAL_COL.fox));
+    oval(0, -12.6, 2.6, 2.6, "#fff7ee");
+    ctx.restore();
   } else {
-    box(x - 0.16, by + 0.18, zBase + 0.5 + bob, 0.32, 0.1, 0.2, e.hair);
+    circ(ox, oy, 3.3, ballGrad(ox, oy, 3.3, ANIMAL_COL.bunny));
   }
-  if (seated) box(x - 0.28, y + 0.24 + lean, 0.38, 0.56, 0.07, 0.42, shade(P.chair, 1.1)); // chair back
-  e.head = [x, by, zBase + 0.95];
 }
 
 function roundRect(x, y, w, h, r) {
@@ -414,10 +737,20 @@ function render(dt, t) {
   // depth-sorted scene objects
   const items = decor(P);
   const slots = Math.max(2, layout.cols * layout.rows);
-  const bySlot = new Map([...entities.values()].filter(e => e.phase !== "leaving" || true).map(e => [e.slot, e]));
+  const bySlot = new Map([...entities.values()].map(e => [e.slot, e]));
   for (let s = 0; s < slots; s++) {
-    const d = deskPos(s), e = bySlot.get(s);
+    const d = deskPos(s), c = chairPos(s), e = bySlot.get(s);
     items.push({ key: d.x + 0.8 + d.y + 0.35, draw: () => drawDesk(s, P, e, t) });
+    items.push({ key: c.x + c.y - 0.05, draw: () => {           // chair seat
+      box(c.x - 0.06, c.y - 0.06, 0, 0.12, 0.12, 0.3, "#20242c");
+      box(c.x - 0.28, c.y - 0.22, 0.3, 0.56, 0.5, 0.08, P.chair);
+    }});
+    items.push({ key: c.x + c.y + 0.3, draw: () => {            // chair back, low enough to see the hood
+      box(c.x - 0.28, c.y + 0.24, 0.38, 0.56, 0.07, 0.26, shade(P.chair, 1.1));
+      if (e && e.sit >= 0.5 && e.anchor && e.x === c.x && e.y === c.y) {
+        ctx.save(); ctx.translate(...e.anchor); drawTail(e, -8.5, 1, false); ctx.restore();
+      }
+    }});
   }
   for (const e of entities.values()) items.push({ key: e.x + e.y, draw: () => drawPerson(e, P, t) });
   items.sort((a, b) => a.key - b.key).forEach(i => i.draw());
