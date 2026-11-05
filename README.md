@@ -15,7 +15,8 @@ notifications when one of them needs you.
   the office is open.
 - **Self-contained:** built-in Python 3, one HTML page, and a bundled copy of [Three.js](https://threejs.org)
   in `vendor/`, so nothing is fetched from the internet. The server listens on `127.0.0.1` only.
-- **Light on battery:** the 3D view draws at about 30 fps and pauses while the tab is hidden.
+- **Light on battery:** the 3D view runs at 60 fps while you're looking at it, about 30 fps when another
+  window has focus, and pauses while the tab is hidden.
 
 ## Requirements
 

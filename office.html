@@ -765,11 +765,11 @@ function placeLabels() {
   }
 }
 
-// ---------- render loop (about 30 fps, paused while the tab is hidden) ----------
+// ---------- render loop: 60 fps while you're on this tab, about 30 fps in the background, paused when hidden ----------
 let lastFrame = performance.now(), lastDraw = 0;
 function frame(nowMs) {
   requestAnimationFrame(frame);
-  if (document.hidden || nowMs - lastDraw < 32) return;
+  if (document.hidden || nowMs - lastDraw < (document.hasFocus() ? 15 : 32)) return;
   const dt = Math.min(0.1, (nowMs - lastFrame) / 1000); lastFrame = nowMs; lastDraw = nowMs;
   const t = nowMs / 1000;
   try {
