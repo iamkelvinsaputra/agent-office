@@ -160,7 +160,8 @@ function syncEntities(sessions) {
         const h = hash(s.id), slot = freeSlot();
         e = { id: s.id, slot, phase: "entering", path: pathIn(slot), x: DOOR.x, y: DOOR.y,
               shirt: SHIRTS[h % SHIRTS.length], skin: SKINS[(h >>> 4) % SKINS.length],
-              hair: HAIRS[(h >>> 8) % HAIRS.length], seed: (h % 1000) / 1000 };
+              hair: HAIRS[(h >>> 8) % HAIRS.length], seed: (h % 1000) / 1000,
+              woman: ((h >>> 12) & 1) === 1 };
         entities.set(s.id, e);
       }
     }
@@ -335,10 +336,17 @@ function drawPerson(e, P, t) {
     box(x + 0.2, by + 0.02, zBase + 0.08, 0.1, 0.14, 0.34, e.shirt);
   }
   // torso, head, hair (we see their back)
-  box(x - 0.2, by, zBase + bob, 0.4, 0.24, 0.46, e.shirt);
+  if (e.woman) box(x - 0.18, by, zBase + bob, 0.36, 0.24, 0.46, e.shirt);  // narrower shoulders
+  else box(x - 0.2, by, zBase + bob, 0.4, 0.24, 0.46, e.shirt);
   box(x - 0.15, by + 0.01, zBase + 0.47 + bob, 0.3, 0.26, 0.3, e.skin);
   box(x - 0.16, by + 0.0, zBase + 0.68 + bob, 0.32, 0.28, 0.12, e.hair);
-  box(x - 0.16, by + 0.18, zBase + 0.5 + bob, 0.32, 0.1, 0.2, e.hair);
+  if (e.woman) { // long hair: sides plus a back panel falling past the shoulders
+    box(x - 0.18, by + 0.02, zBase + 0.42 + bob, 0.04, 0.24, 0.3, e.hair);
+    box(x + 0.14, by + 0.02, zBase + 0.42 + bob, 0.04, 0.24, 0.3, e.hair);
+    box(x - 0.17, by + 0.18, zBase + 0.26 + bob, 0.34, 0.11, 0.48, e.hair);
+  } else {
+    box(x - 0.16, by + 0.18, zBase + 0.5 + bob, 0.32, 0.1, 0.2, e.hair);
+  }
   if (seated) box(x - 0.28, y + 0.24 + lean, 0.38, 0.56, 0.07, 0.42, shade(P.chair, 1.1)); // chair back
   e.head = [x, by, zBase + 0.95];
 }
