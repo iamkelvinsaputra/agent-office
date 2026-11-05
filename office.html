@@ -146,7 +146,9 @@ function deskPos(slot) {
   return { x: 1.4 + col * SPACING, y: 1.4 + row * SPACING };
 }
 function chairPos(slot) { const d = deskPos(slot); return { x: d.x + 0.8, y: d.y + 1.15 }; }
-const DOOR = { x: 0.15, y: 0.8 }, AISLE_X = 0.7, LEAVE_X = 0.4;
+const DOOR = { x: 0.15, y: 0.8 }, AISLE_X = 0.8, LEAVE_X = 0.35;   // in and out aisles, well apart
+// two sides of the doorway: in on the far side, out on the near side, so nobody meets head-on there
+const DOOR_IN = { x: DOOR.x, y: DOOR.y + 0.18 }, DOOR_OUT = { x: DOOR.x, y: DOOR.y - 0.18 };
 
 // ---------- characters: data ----------
 const entities = new Map();   // id -> entity
@@ -188,8 +190,9 @@ function startLeaving(e) {
   const lane = laneY(e.slot);
   e.phase = "leaving"; e.walkT = 0;
   // leave along a lane of their own, so nobody meets someone coming in head-on
-  const out = lane + 0.35;
-  e.path = [{ x: e.x, y: out }, { x: LEAVE_X, y: out }, { x: LEAVE_X, y: DOOR.y }, { ...DOOR }];
+  const out = lane + 0.35, home = [{ x: LEAVE_X, y: DOOR_OUT.y }, { ...DOOR_OUT }];
+  if (e.x < 1.1) e.path = [{ x: LEAVE_X, y: e.y }, ...home];     // still in the aisles: turn straight back
+  else e.path = [{ x: e.x, y: out }, { x: LEAVE_X, y: out }, ...home];
 }
 function syncEntities(sessions) {
   const seen = new Set();
@@ -197,9 +200,9 @@ function syncEntities(sessions) {
     seen.add(s.id);
     let e = entities.get(s.id);
     if (!e) {
-      e = { id: s.id, slot: freeSlot(), phase: "entering", path: null, x: DOOR.x, y: DOOR.y, look: makeLook(s.id),
+      e = { id: s.id, slot: freeSlot(), phase: "entering", path: null, x: DOOR_IN.x, y: DOOR_IN.y, look: makeLook(s.id),
             sit: 0, walkT: 0, stride: 0, yaw: Math.PI / 2, targetYaw: Math.PI / 2,
-            outside: true, ticket: ticket++, waitT: 0, waiting: false };
+            outside: true, ticket: ticket++, waitT: 0, waiting: false, ghostT: 0 };
       entities.set(s.id, e);
       if (gl) addFigure(e);
     } else if (e.phase === "standing") {
@@ -227,13 +230,35 @@ function syncEntities(sessions) {
 }
 
 const isWalking = e => e.phase === "entering" || e.phase === "leaving";
-function blockedAhead(e, ux, uy) {
+function heading(e) {   // unit direction toward the next waypoint
+  const n = e.path && e.path[0];
+  if (!n) return null;
+  const dx = n.x - e.x, dy = n.y - e.y, d = Math.hypot(dx, dy);
+  return d < 1e-6 ? null : [dx / d, dy / d];
+}
+function blockerOf(e) {   // someone just ahead of e, in its way
+  const h = heading(e);
+  if (!h) return null;
   for (const o of entities.values()) {
     if (o === e || o.outside || !isWalking(o)) continue;
-    const rx = o.x - e.x, ry = o.y - e.y, along = rx * ux + ry * uy, side = Math.abs(rx * uy - ry * ux);
-    if (along > 0.02 && along < 0.6 && side < 0.3) return true;
+    const rx = o.x - e.x, ry = o.y - e.y, along = rx * h[0] + ry * h[1], side = Math.abs(rx * h[1] - ry * h[0]);
+    if (along > 0.02 && along < 0.6 && side < 0.24) return o;
   }
-  return false;
+  return null;
+}
+// When two people are in each other's way (paths crossing), one goes first:
+// whoever is leaving, then whoever arrived earlier.
+const priority = e => (e.phase === "leaving" ? 1e9 : 0) - e.ticket;
+function mustWait(e) {
+  // Follow who-waits-for-whom. If it loops back to e, the people in the loop would wait forever,
+  // so the one with the highest priority in it goes first.
+  const chain = [e];
+  for (let b = blockerOf(e); b; b = blockerOf(b)) {
+    if (b === e) return chain.some(o => priority(o) > priority(e));
+    if (chain.includes(b) || chain.length > 12) return true;   // a jam further ahead; it resolves itself
+    chain.push(b);
+  }
+  return chain.length > 1;
 }
 const SPEED = 1.9;      // tiles per second at full stride
 const SIT_SPEED = 2.2;  // sit-down / stand-up transitions per second
@@ -254,18 +279,20 @@ function stepEntities(dt) {
     // waiting outside: come in one at a time, once the doorway is clear
     if (e.outside) {
       const first = ![...entities.values()].some(o => o.outside && o.ticket < e.ticket);
-      const clear = ![...entities.values()].some(o => o !== e && !o.outside && isWalking(o) && Math.hypot(o.x - DOOR.x, o.y - DOOR.y) < 0.7);
+      const clear = ![...entities.values()].some(o => o !== e && !o.outside && isWalking(o) && Math.hypot(o.x - DOOR_IN.x, o.y - DOOR_IN.y) < 0.6);
       if (!(first && clear)) continue;
       e.outside = false; e.walkT = 0;
     }
-    // queue: wait behind anyone just ahead going the same way (give up after a few seconds so nobody gets stuck)
-    const next = e.path && e.path[0];
-    if (next) {
-      const dx = next.x - e.x, dy = next.y - e.y, d = Math.hypot(dx, dy) || 1;
-      e.waiting = e.waitT < 4 && blockedAhead(e, dx / d, dy / d);
-      if (e.waiting) { e.waitT += dt; e.walkT = 0; continue; }
-      e.waitT = 0;
+    // queue: wait behind anyone just ahead. If that ever lasts 4 seconds, walk on regardless
+    // for a moment (brushing past) so nobody can get stuck.
+    if (e.ghostT > 0) e.ghostT -= dt;
+    e.waiting = e.ghostT <= 0 && mustWait(e);
+    if (e.waiting) {
+      e.waitT += dt; e.walkT = 0;
+      if (e.waitT < 4) continue;
+      e.waiting = false; e.ghostT = 1.5;
     }
+    e.waitT = 0;
     // walking: ease in at the start of a trip and ease out on arrival
     e.walkT += dt;
     let remain = 0, px = e.x, py = e.y;
