@@ -174,20 +174,19 @@ function startLeaving(e) {
   e.path = [{ x: e.x, y: lane }, { x: AISLE_X, y: lane }, { x: AISLE_X, y: DOOR.y }, { ...DOOR }];
 }
 function syncEntities(sessions) {
-  const seen = new Set(), nowT = performance.now() / 1000;
+  const seen = new Set();
   for (const s of sessions) {
     seen.add(s.id);
     let e = entities.get(s.id);
     if (!e) {
       e = { id: s.id, slot: freeSlot(), phase: "entering", path: null, x: DOOR.x, y: DOOR.y, look: makeLook(s.id),
-            sit: 0, walkT: 0, stride: 0, front: 1, side: 0, stateAt: -99 };
+            sit: 0, walkT: 0, stride: 0, front: 1, side: 0 };
       entities.set(s.id, e);
     } else if (e.phase === "standing") {
       e.phase = "sitting";                      // changed its mind on the way out
     } else if (e.phase === "leaving") {
       e.phase = "entering"; e.walkT = 0; e.path = enterPath(e);
     }
-    if (e.data && e.data.state !== s.state && e.phase === "seated") e.stateAt = nowT;
     e.data = s;
   }
   for (const e of entities.values()) {
@@ -453,18 +452,14 @@ function drawPerson(e, P, t) {
   const walking = e.phase === "entering" || e.phase === "leaving";
   const st = e.phase === "seated" ? e.data.state : null;
   const sit = e.sit, front = e.front > 0.5;
-  const since = t - e.stateAt;
-  const stretching = st === "your_turn" && since < 1.9 && m;
-  const relaxed = st === "your_turn" && !stretching;
   const wTop = L.woman ? 12 : 14, wBot = L.woman ? 14.5 : 16;
   const legLen = 8 * (1 - sit), hipPx = 8 + 3.4 * sit;
   const breathe = 1 + 0.02 * Math.sin(tt * 2.1) * m;
-  const SH = -13 * breathe * (stretching ? 1 + 0.06 * Math.sin(Math.min(1, since / 1.9) * Math.PI) : 1);
+  const SH = -13 * breathe;
   const hop = walking ? Math.abs(Math.sin(e.stride)) * 1.6 * m : 0;
   let headTilt = 0.13 * bump(tt, 8.5, 1.5) * m, nod = 0;
   if (st === "working") nod = Math.sin(tt * 5) * 0.5 * m;
   if (st === "needs_you") headTilt = 0.12;
-  if (relaxed) headTilt = -0.1;
   const cy = SH - 9 + nod;                       // head centre
   const shoulder = s => [s * (wTop / 2 - 1.5), SH + 2.5];
 
@@ -480,7 +475,7 @@ function drawPerson(e, P, t) {
   e.head = [e.x, e.y - 0.12 * sit, (hipPx - cy + R + (L.animal === "bunny" ? 9 : L.animal ? 4 : 2)) / ZU];
   ctx.save();
   ctx.translate(ax, ay - hop);
-  ctx.rotate(relaxed ? -0.06 : walking ? e.side * 0.05 : 0);
+  ctx.rotate(walking ? e.side * 0.05 : 0);
   ctx.scale(0.84 + 0.16 * Math.abs(e.front * 2 - 1), 1);   // squash a little while turning around
 
   const sleeve = shade(L.hoodie, 0.92), skin = L.skin;
@@ -640,16 +635,12 @@ function drawPerson(e, P, t) {
     body();
     if (st === "needs_you") {
       arm(-1, [[-(wBot / 2 + 0.8), SH * 0.45], [-(wBot / 2 + 0.6), -2]]);
-    } else if (st !== "working" && !stretching && !relaxed) armsDown();
+    } else if (st !== "working") armsDown();   // idle: arms simply resting
     longHair();
     head();
     if (st === "needs_you") {     // waving
       const a = -Math.PI / 2 + 0.5 * Math.sin(tt * 9) * m, [ex, ey] = [wTop / 2 + 5, SH - 3];
       arm(1, [[ex, ey], [ex + Math.cos(a) * 7, ey + Math.sin(a) * 7]]);
-    } else if (stretching) {
-      for (const s of [-1, 1]) arm(s, [[s * 6.5, SH - 10], [s * 3.5, cy - R - 5]]);
-    } else if (relaxed) {         // hands behind the head
-      for (const s of [-1, 1]) arm(s, [[s * (R + 3.5), cy - 2], [s * 4, cy + 1]]);
     }
     if (sit < 0.5) drawTail(e, 0, -3, false);
   }
