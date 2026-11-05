@@ -2,6 +2,7 @@
 """Agent Office server: serves the office page and the live session list on 127.0.0.1 only."""
 import json
 import os
+import re
 import sys
 import time
 import webbrowser
@@ -11,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import REGISTRY_DIR, STATE_DIR, read_json, session_name  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+VENDOR_NAME = re.compile(r"^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*\.js$")
 HOME = os.path.expanduser("~")
 PORT = int(os.environ.get("AGENT_OFFICE_PORT", "47823"))
 
@@ -134,6 +136,10 @@ class Handler(BaseHTTPRequestHandler):
             now = time.time()
             body = json.dumps({"now": now, "sessions": sessions(now)}).encode()
             self._send(200, "application/json", body)
+        elif path.startswith("/vendor/") and VENDOR_NAME.match(path[8:]) and os.path.isfile(os.path.join(HERE, "vendor", path[8:])):
+            # only plain file names, so nothing outside vendor/ can be read
+            with open(os.path.join(HERE, "vendor", path[8:]), "rb") as f:
+                self._send(200, "text/javascript; charset=utf-8", f.read())
         else:
             self._send(404, "text/plain", b"not found")
 
