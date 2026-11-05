@@ -3,10 +3,16 @@
 A tiny 3D office in your browser that shows your live Claude Code sessions, plus macOS
 notifications when one of them needs you.
 
+![The office: six sessions at their desks, one needs you (orange), one finished (green), four working](docs/office.jpg)
+
+![Close-up of the figurines at their desks](docs/closeup.jpg)
+
+<sub>Screenshots use made-up demo sessions.</sub>
+
 - **One desk per live session.** Little toy figures walk in when a session starts, sit down at a desk, and
   walk out when it closes. Each session gets its own look (hairstyle, hoodie, sometimes animal ears).
 - **At-a-glance states:** ⚙ working (typing, code on screen) · ⚠ needs you (permission prompt or a
-  question; waving, flashing screen) · ✓ your turn (finished, leaning back).
+  question; waving, flashing screen) · ✓ your turn (finished; sitting idle, green screen).
 - **No clutter:** sessions that finished and haven't been touched for 30 minutes are hidden.
   Closed sessions disappear right away.
 - **Readable names:** your `--name` / `/rename` if you set one, otherwise Claude's automatic topic
