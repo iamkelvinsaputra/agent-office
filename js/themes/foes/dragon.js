@@ -15,42 +15,56 @@ export function makeDragon(kit) {
   const memb = own(new THREE.MeshPhysicalMaterial({ color: "#ee6a45", roughness: 0.55, clearcoat: 0.2, side: THREE.DoubleSide, shadowSide: THREE.DoubleSide }));
   const P = (geo, m, parent, x, y, z) => part(geo, m, parent, x, y, z);
 
-  P(sphere(1.0, 40, 30), red, body, 0, 1.0, 0).scale.set(1.0, 1.12, 0.92);
-  P(sphere(0.8, 36, 26), belly, body, 0, 0.98, 0.4).scale.set(0.84, 1.04, 0.56);
-  for (let i = 0; i < 4; i++) { const r = P(new THREE.TorusGeometry(0.5 - Math.abs(i - 1.5) * 0.06, 0.018, 6, 30, Math.PI), vinyl("#e3ab6e"), body, 0, 0.55 + i * 0.27, 0.78 - Math.abs(i - 1.5) * 0.04); r.rotation.set(Math.PI / 2 - 0.15, 0, 0); r.scale.set(1, 0.55, 1); }
+  // lean chibi body: a narrow, tall pear (hips below, a smaller chest above) with a waist where they meet
+  const HIPS = { y: 0.78, z: 0, rx: 0.66, ry: 0.66, rz: 0.58 }, CHEST = { y: 1.62, z: -0.02, rx: 0.55, ry: 0.6, rz: 0.48 };
+  const BELLY = [{ y: 0.8, z: 0.26, rx: 0.48, ry: 0.58, rz: 0.36 }, { y: 1.6, z: 0.2, rx: 0.38, ry: 0.5, rz: 0.34 }];
+  const blob = (e, m) => P(sphere(1, 40, 30), m, body, 0, e.y, e.z).scale.set(e.rx, e.ry, e.rz);
+  const across = (e, y) => { const k = 1 - ((y - e.y) / e.ry) ** 2; return k > 0 ? Math.sqrt(k) : -1; };   // ellipsoid's size at height y, 0..1
+  for (const e of [HIPS, CHEST]) blob(e, red);
+  for (const e of BELLY) blob(e, belly);
+  for (const y of [0.55, 0.85, 1.15, 1.45, 1.75]) {   // belly scales: half rings following the belly's front
+    let best = null;
+    for (const e of BELLY) { const k = across(e, y); if (k > 0 && (!best || e.z + e.rz * k > best.front)) best = { e, w: e.rx * k * 0.95, front: e.z + e.rz * k }; }
+    const r = P(new THREE.TorusGeometry(best.w, 0.018, 6, 30, Math.PI), vinyl("#e3ab6e"), body, 0, y, best.e.z);
+    r.rotation.x = Math.PI / 2; r.scale.set(1, (best.front + 0.015 - best.e.z) / best.w, 1);
+  }
   for (const s of [-1, 1]) {
-    P(sphere(0.5, 28, 20), red, body, s * 0.72, 0.45, 0.02).scale.set(0.85, 0.85, 1.15);           // haunch
-    const foot = P(sphere(0.3, 20, 14), red, body, s * 0.8, 0.13, 0.48); foot.scale.set(1, 0.55, 1.35);
-    for (let c = -1; c <= 1; c++) { const cl = P(new THREE.ConeGeometry(0.05, 0.13, 10), horn, body, s * 0.8 + c * 0.12, 0.08, 0.86); cl.rotation.x = Math.PI / 2; }
+    P(sphere(0.36, 28, 20), red, body, s * 0.5, 0.42, 0.02).scale.set(0.8, 0.9, 1.15);           // haunch
+    const foot = P(sphere(0.22, 20, 14), red, body, s * 0.52, 0.1, 0.36); foot.scale.set(1, 0.55, 1.4);
+    for (let c = -1; c <= 1; c++) { const cl = P(new THREE.ConeGeometry(0.04, 0.11, 10), horn, body, s * 0.52 + c * 0.085, 0.07, 0.67); cl.rotation.x = Math.PI / 2; }
   }
   const arms = [-1, 1].map(s => {
-    const g = new THREE.Group(); g.position.set(s * 0.6, 1.45, 0.42); body.add(g);
-    const a = P(new THREE.CapsuleGeometry(0.15, 0.32, 6, 14), red, g, 0, -0.2, 0.08); a.rotation.x = 0.45;
-    P(sphere(0.17, 16, 12), red, g, 0, -0.42, 0.2);
-    for (let c = -1; c <= 1; c++) { const cl = P(new THREE.ConeGeometry(0.035, 0.1, 8), horn, g, c * 0.08, -0.5, 0.33); cl.rotation.x = 1.9; }
+    const g = new THREE.Group(); g.position.set(s * 0.44, 1.52, 0.33); body.add(g);
+    const a = P(new THREE.CapsuleGeometry(0.11, 0.28, 6, 14), red, g, 0, -0.18, 0.07); a.rotation.x = 0.45;
+    P(sphere(0.13, 16, 12), red, g, 0, -0.37, 0.16);
+    for (let c = -1; c <= 1; c++) { const cl = P(new THREE.ConeGeometry(0.03, 0.09, 8), horn, g, c * 0.06, -0.43, 0.27); cl.rotation.x = 1.9; }
     g.rotation.z = s * -0.15;
     return g;
   });
-  // back and tail spikes
-  for (let i = 0; i < 5; i++) {
-    const a = 0.3 + i * 0.32, y = 1.0 + 1.06 * Math.cos(a), z = -0.88 * Math.sin(a);
-    const sp = P(new THREE.ConeGeometry(0.11 - i * 0.008, 0.26, 12), spike, body, 0, y, z); sp.rotation.x = -a;
+  // back spikes, standing out of the back of the chest and hips
+  [[1.98, 0.55], [1.72, 0.9], [1.46, 1.2], [1.2, 1.4], [0.94, 1.55]].forEach(([y, a], i) => {
+    const z = Math.min(...[HIPS, CHEST].map(e => { const k = across(e, y); return k > 0 ? e.z - e.rz * k : 0; }));
+    const sp = P(new THREE.ConeGeometry(0.1 - i * 0.008, 0.24, 12), spike, body, 0, y, z); sp.rotation.x = -a;
+  });
+  // tail: one smooth tapering tube curling around the right side, resting on the ground
+  const tail = new THREE.Group(); tail.position.set(0, 0.4, -0.5); body.add(tail);
+  const curve = new THREE.CatmullRomCurve3([[0, 0, 0], [0.45, -0.14, -0.45], [1.05, -0.2, -0.35], [1.4, -0.25, 0.15], [1.3, -0.28, 0.7], [0.95, -0.3, 1.0]].map(v => new THREE.Vector3(...v)));
+  const tailR = u => 0.22 * (1 - u) + 0.045, N = 64, tube = new THREE.TubeGeometry(curve, N, 1, 14);
+  const pos = tube.attributes.position, c = new THREE.Vector3(), v = new THREE.Vector3();
+  for (let i = 0; i <= N; i++) {   // TubeGeometry lays rings out by arc length: shrink ring i toward its centre
+    curve.getPointAt(i / N, c);
+    for (let j = 0; j <= 14; j++) { const k = i * 15 + j; v.fromBufferAttribute(pos, k).sub(c).multiplyScalar(tailR(i / N)).add(c); pos.setXYZ(k, v.x, v.y, v.z); }
   }
-  // tail: a tapering chain curling around the right side
-  const tail = new THREE.Group(); tail.position.set(0, 0.4, -0.7); body.add(tail);
-  const curve = new THREE.CatmullRomCurve3([[0, 0, 0], [0.55, -0.15, -0.5], [1.25, -0.22, -0.35], [1.62, -0.24, 0.25], [1.45, -0.25, 0.85], [1.05, -0.24, 1.15]].map(v => new THREE.Vector3(...v)));
-  for (let i = 0; i <= 18; i++) {
-    const u = i / 18, p = curve.getPoint(u), r = 0.36 * (1 - u) + 0.07;
-    P(sphere(r, 18, 12), red, tail, p.x, p.y + r * 0.4, p.z);
-    if (i % 4 === 2 && i < 16) P(new THREE.ConeGeometry(r * 0.35, r * 0.8, 10), spike, tail, p.x, p.y + r * 1.25, p.z);
-  }
-  const tipP = curve.getPoint(1), tip = P(new THREE.OctahedronGeometry(0.17), spike, tail, tipP.x - 0.12, tipP.y + 0.08, tipP.z + 0.05);
+  P(tube, red, tail);
+  P(sphere(tailR(0), 18, 12), red, tail);
+  for (const u of [0.15, 0.35, 0.55, 0.75]) { const p = curve.getPointAt(u), r = tailR(u); P(new THREE.ConeGeometry(r * 0.45, r * 1.1, 10), spike, tail, p.x, p.y + r * 1.25, p.z); }
+  const tipP = curve.getPoint(1), tip = P(new THREE.OctahedronGeometry(0.15), spike, tail, tipP.x - 0.1, tipP.y + 0.04, tipP.z + 0.05);
   tip.scale.set(1.3, 0.35, 1);
-  // neck and head
-  const neck = new THREE.Group(); neck.position.set(0, 1.8, 0.08); body.add(neck);
-  P(new THREE.CapsuleGeometry(0.35, 0.5, 8, 20), red, neck, 0, 0.42, 0.1).rotation.x = 0.28;
-  P(new THREE.CapsuleGeometry(0.22, 0.48, 8, 16), belly, neck, 0, 0.36, 0.33).rotation.x = 0.28;
-  const head = new THREE.Group(); head.position.set(0, 0.98, 0.28); neck.add(head);
+  // neck and head: a longer, slimmer neck lifts the head clear of the chest
+  const neck = new THREE.Group(); neck.position.set(0, 1.88, 0.06); body.add(neck);
+  P(new THREE.CapsuleGeometry(0.25, 0.7, 8, 20), red, neck, 0, 0.48, 0.1).rotation.x = 0.28;
+  P(new THREE.CapsuleGeometry(0.16, 0.66, 8, 16), belly, neck, 0, 0.42, 0.26).rotation.x = 0.28;
+  const head = new THREE.Group(); head.position.set(0, 1.08, 0.36); neck.add(head);
   P(sphere(0.6, 36, 28), red, head, 0, 0, 0).scale.set(1.05, 0.92, 1.0);
   P(sphere(0.42, 30, 22), red, head, 0, -0.14, 0.5).scale.set(0.92, 0.62, 1.05);
   const lids = [], shines = [];
@@ -74,7 +88,7 @@ export function makeDragon(kit) {
   const mouth = new THREE.Object3D(); mouth.position.set(0, -0.28, 0.9); head.add(mouth);
   // wings
   const wings = [-1, 1].map(s => {
-    const w = new THREE.Group(); w.position.set(s * 0.5, 1.62, -0.5); body.add(w);
+    const w = new THREE.Group(); w.position.set(s * 0.32, 1.78, -0.4); body.add(w);
     const inner = new THREE.Group(); inner.scale.x = s; w.add(inner);
     const sh = new THREE.Shape();
     sh.moveTo(0, 0); sh.lineTo(0.5, 0.95); sh.lineTo(1.05, 1.55); sh.lineTo(2.05, 1.45);
@@ -109,7 +123,7 @@ export function makeDragon(kit) {
   let acc = 0;
   return {
     root, head, zzzY: 0.9, timing,
-    hit: new THREE.Vector3(0, 1.2, 0.6),           // front of the chest
+    hit: new THREE.Vector3(0, 1.25, 0.48),         // front of the belly, just under the chest
     recoil: { stiff: 55, damp: 5, kick: 0.5 },      // springy: it wobbles back into place
 
     scenery() {   // the hoard behind it
