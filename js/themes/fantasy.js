@@ -246,8 +246,9 @@ export function createFantasyTheme(ctx) {
     }
     return { labelY };
 
+    // a staff gripped near its lower third, kept upright in the world (see upright()) so lifting the arm raises it
     function staff(arm, glow, mage) {
-      const g = new THREE.Group(); g.position.set(0, -0.1, 0); g.rotation.x = 0.6435; arm.el.add(g);
+      const g = upright(F, arm, { x: mage ? 0.45 : 0.32, z: 0 });   // the mage's leans further forward, clear of the hat brim
       part(new THREE.CylinderGeometry(0.012, 0.012, 0.8, 8), mage ? vinyl(WOOD) : metal(GOLD), g, 0, 0.15, 0);
       const topY = 0.58;
       if (mage) { const ring = part(new THREE.TorusGeometry(0.045, 0.01, 6, 16), vinyl(WOOD), g, 0, topY - 0.02, 0); ring.rotation.x = Math.PI / 2; }
@@ -255,6 +256,22 @@ export function createFantasyTheme(ctx) {
       const top = part(sphere(mage ? 0.045 : 0.03, 16, 12), vinyl(glow, false, glow), g, 0, topY + (mage ? 0.02 : 0.02), 0);
       return { top };
     }
+  }
+
+  // A holder that rides on an arm's hand but keeps its own turn in the world: upright, facing the way the figure
+  // faces, with a fixed tilt { x: top forward, z: top out to the holder's side }, gripped at the outer side of the
+  // hand. However the arm and the whole figure turn, the held thing never swings into the body.
+  function upright(F, arm, tilt) {
+    const g = new THREE.Group(); g.position.set(arm.s * 0.045, -0.1, 0.01); arm.el.add(g);
+    const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3(), e = new THREE.Euler();
+    const place = () => {
+      g.updateMatrix(); g.matrixWorld.multiplyMatrices(g.parent.matrixWorld, g.matrix);
+      g.matrixWorld.decompose(p, q, s);
+      g.matrixWorld.compose(p, q.setFromEuler(e.set(tilt.x, F.root.rotation.y, -arm.s * tilt.z, "YXZ")), s);
+    };
+    g.updateMatrixWorld = () => { place(); for (const c of g.children) c.updateMatrixWorld(true); };
+    g.updateWorldMatrix = (up, down) => { if (up) g.parent.updateWorldMatrix(true, false); place(); if (down) for (const c of g.children) c.updateWorldMatrix(false, true); };
+    return g;
   }
 
   // pose for someone at their spot. p: { hx, hy, hz, lean, arm: { -1: right, 1: left } } with
@@ -266,8 +283,12 @@ export function createFantasyTheme(ctx) {
       p.hx = 0.12;
       return;
     }
-    if (st === "needs_you") {
-      Object.assign(R, { ux: 0, uz: -2.55, fx: 0, fz: -(0.3 + 0.45 * Math.sin(tt * 9) * m) });
+    if (st === "needs_you") {   // wave; staff holders wave with the free hand, an upright staff can't go over the head
+      const wave = { ux: 0, uz: -2.55, fx: 0, fz: -(0.3 + 0.45 * Math.sin(tt * 9) * m) };
+      if (c === "mage" || c === "priest") {   // and plant the staff a little forward and out, clear of the hat and head
+        Object.assign(Lh, { ...wave, uz: -wave.uz, fz: -wave.fz });
+        Object.assign(R, { ux: -0.35, uz: -0.42, fx: -0.35, fz: 0 });
+      } else Object.assign(R, wave);
       if (c === "archer") Object.assign(Lh, { ux: -0.3, uz: 0.15, fx: -0.2 });
       return;
     }
