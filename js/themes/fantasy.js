@@ -194,14 +194,15 @@ export function createFantasyTheme(ctx) {
       helm.rotation.x = -0.12;
       const band = part(new THREE.TorusGeometry(HR * 1.08, 0.012, 8, 36), gold, F.skull, 0, HR * 0.3, -0.02); band.rotation.x = Math.PI / 2 - 0.12;
       const plume = part(sphere(0.05, 16, 12), tab, F.skull, 0, HR * 1.18, -0.04); plume.scale.set(0.45, 0.9, 1.9);
-      // sword in the right hand, shield on the left arm
-      const sw = new THREE.Group(); sw.position.set(0, -0.1, 0); sw.rotation.x = 2.356; R.el.add(sw);
+      // sword in the right hand, its blade carried along the forearm and a little forward (clear of the legs and of
+      // the helmet when raised); shield on the left arm
+      const sw = new THREE.Group(); sw.position.set(0, -0.1, 0); sw.rotation.x = 2.75; R.el.add(sw);
       part(new THREE.CylinderGeometry(0.012, 0.012, 0.07, 8), vinyl(LEATHER), sw);
       part(sphere(0.018, 10, 8), gold, sw, 0, -0.045, 0);
       part(rounded(0.11, 0.018, 0.026, 0.006), gold, sw, 0, 0.04, 0);
       part(new THREE.BoxGeometry(0.01, 0.26, 0.036), steel, sw, 0, 0.18, 0);
       part(new THREE.ConeGeometry(0.0255, 0.05, 4), steel, sw, 0, 0.335, 0).scale.set(0.4, 1, 1);
-      const sh = new THREE.Group(); sh.position.set(0.05, -0.06, 0.01); sh.rotation.z = Math.PI / 2; Lf.el.add(sh);
+      const sh = new THREE.Group(); sh.position.set(0.065, -0.06, 0.01); sh.rotation.z = Math.PI / 2; Lf.el.add(sh);
       part(new THREE.CylinderGeometry(0.12, 0.12, 0.022, 28), tab, sh);
       part(new THREE.TorusGeometry(0.12, 0.012, 8, 32), steel, sh).rotation.x = Math.PI / 2;
       part(sphere(0.032, 14, 10), steel, sh, 0, -0.014, 0).scale.y = 0.6;
@@ -227,9 +228,10 @@ export function createFantasyTheme(ctx) {
       const q = new THREE.Group(); q.position.set(0.06, 0.18, -0.12); q.rotation.set(-0.15, 0, -0.45); F.hips.add(q);   // quiver
       part(new THREE.CylinderGeometry(0.035, 0.03, 0.17, 14), vinyl(WOOD), q);
       for (const [dx, col] of [[-0.016, "#f2efe6"], [0.0, "#e8655a"], [0.016, "#f2efe6"]]) part(new THREE.BoxGeometry(0.012, 0.05, 0.022), vinyl(col), q, dx, 0.1, 0);
-      // bow in the left hand: its long axis runs along the forearm's z, tips curving back toward the archer
+      // bow in the left hand, held upright in front (see upright()) with its tips and string toward the archer, so
+      // neither limb swings into the hood, body or cape however the arm moves. Built along z, stood up on y.
       const pts = []; for (let i = 0; i <= 8; i++) { const z = -0.26 + i * 0.065; pts.push(new THREE.Vector3(0, 0.09 * (z / 0.26) ** 2, z)); }
-      const bow = new THREE.Group(); bow.position.set(0, -0.1, 0); Lf.el.add(bow);
+      const bow = new THREE.Group(); bow.rotation.x = -Math.PI / 2; upright(F, Lf, { x: 0.35, z: 0 }).add(bow);
       part(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.013, 6), vinyl(WOOD), bow);
       const str = part(new THREE.CylinderGeometry(0.0025, 0.0025, 0.52, 4), vinyl("#f4f0e4"), bow, 0, 0.09, 0); str.rotation.x = Math.PI / 2;
       part(new THREE.CylinderGeometry(0.017, 0.017, 0.05, 10), vinyl(LEATHER), bow).rotation.x = Math.PI / 2;
@@ -246,8 +248,9 @@ export function createFantasyTheme(ctx) {
     }
     return { labelY };
 
+    // a staff gripped near its lower third, kept upright in the world (see upright()) so lifting the arm raises it
     function staff(arm, glow, mage) {
-      const g = new THREE.Group(); g.position.set(0, -0.1, 0); g.rotation.x = 0.6435; arm.el.add(g);
+      const g = upright(F, arm, { x: mage ? 0.45 : 0.32, z: 0 });   // the mage's leans further forward, clear of the hat brim
       part(new THREE.CylinderGeometry(0.012, 0.012, 0.8, 8), mage ? vinyl(WOOD) : metal(GOLD), g, 0, 0.15, 0);
       const topY = 0.58;
       if (mage) { const ring = part(new THREE.TorusGeometry(0.045, 0.01, 6, 16), vinyl(WOOD), g, 0, topY - 0.02, 0); ring.rotation.x = Math.PI / 2; }
@@ -255,6 +258,22 @@ export function createFantasyTheme(ctx) {
       const top = part(sphere(mage ? 0.045 : 0.03, 16, 12), vinyl(glow, false, glow), g, 0, topY + (mage ? 0.02 : 0.02), 0);
       return { top };
     }
+  }
+
+  // A holder that rides on an arm's hand but keeps its own turn in the world: upright, facing the way the figure
+  // faces, with a fixed tilt { x: top forward, z: top out to the holder's side }, gripped at the outer side of the
+  // hand. However the arm and the whole figure turn, the held thing never swings into the body.
+  function upright(F, arm, tilt) {
+    const g = new THREE.Group(); g.position.set(arm.s * 0.045, -0.1, 0.01); arm.el.add(g);
+    const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3(), e = new THREE.Euler();
+    const place = () => {
+      g.updateMatrix(); g.matrixWorld.multiplyMatrices(g.parent.matrixWorld, g.matrix);
+      g.matrixWorld.decompose(p, q, s);
+      g.matrixWorld.compose(p, q.setFromEuler(e.set(tilt.x, F.root.rotation.y, -arm.s * tilt.z, "YXZ")), s);
+    };
+    g.updateMatrixWorld = () => { place(); for (const c of g.children) c.updateMatrixWorld(true); };
+    g.updateWorldMatrix = (up, down) => { if (up) g.parent.updateWorldMatrix(true, false); place(); if (down) for (const c of g.children) c.updateWorldMatrix(false, true); };
+    return g;
   }
 
   // pose for someone at their spot. p: { hx, hy, hz, lean, arm: { -1: right, 1: left } } with
@@ -266,8 +285,12 @@ export function createFantasyTheme(ctx) {
       p.hx = 0.12;
       return;
     }
-    if (st === "needs_you") {
-      Object.assign(R, { ux: 0, uz: -2.55, fx: 0, fz: -(0.3 + 0.45 * Math.sin(tt * 9) * m) });
+    if (st === "needs_you") {   // wave; staff holders wave with the free hand, an upright staff can't go over the head
+      const wave = { ux: 0, uz: -2.55, fx: 0, fz: -(0.3 + 0.45 * Math.sin(tt * 9) * m) };
+      if (c === "mage" || c === "priest") {   // and plant the staff a little forward and out, clear of the hat and head
+        Object.assign(Lh, { ...wave, uz: -wave.uz, fz: -wave.fz });
+        Object.assign(R, { ux: -0.35, uz: -0.42, fx: -0.35, fz: 0 });
+      } else Object.assign(R, wave, c === "warrior" ? { uz: -2.1 } : {});   // the warrior's sword hand stays out from the helmet
       if (c === "archer") Object.assign(Lh, { ux: -0.3, uz: 0.15, fx: -0.2 });
       return;
     }
@@ -276,7 +299,8 @@ export function createFantasyTheme(ctx) {
     if (c === "warrior") {
       const ph = frac((t + seed * 7) / 1.4);
       const ux = ph < 0.55 ? lerp(-0.4, -2.7, smooth(0, 0.55, ph)) : ph < 0.7 ? lerp(-2.7, -0.7, smooth(0.55, 0.7, ph)) : lerp(-0.7, -0.4, smooth(0.7, 1, ph));
-      Object.assign(R, { ux: ux * m || -0.6, uz: -0.15, fx: -0.35, fz: 0 });
+      const high = smooth(1.2, 2.7, -ux * m);   // near the top of the swing the arm swings a little out, so hand and sword pass beside the helmet
+      Object.assign(R, { ux: ux * m || -0.6, uz: -0.15 - 0.7 * high, fx: -0.35, fz: 0 });
       Object.assign(Lh, { ux: -1.0, uz: 0.35, fx: -1.0, fz: 0.3 });
       p.lean = ph > 0.55 && ph < 0.8 ? 0.12 * m : 0;
     } else if (c === "mage") {
@@ -500,10 +524,14 @@ export function createFantasyTheme(ctx) {
     group.add(obj);
     const f = { t: 0, dur, update, done(quiet) { group && group.remove(obj); obj.traverse(o => o.material && o.material.dispose()); if (onEnd && !quiet) onEnd(); } };
     fx.push(f);
+    update(0);   // place it now: an effect added after this frame's fx update would otherwise be drawn once at the origin, full size
     return f;
   }
   const tv = new THREE.Vector3(), tv2 = new THREE.Vector3();
-  const chest = () => new THREE.Vector3(0.75 * Math.cos(A0), 1.5, 0.75 * Math.sin(A0));
+  // where a hit lands on the Foe (its own hit point, without the recoil), turned to face an attacker standing at
+  // xz angle a around the Foe (default: straight toward the Party)
+  const chest = (a = A0) => { foe.root.updateMatrix(); return foe.hit.clone().applyAxisAngle(UP, A0 - a).applyMatrix4(foe.root.matrix); };
+  const UP = new THREE.Vector3(0, 1, 0);
   function burst(p, col, size, dur = 0.35, peak = 1) {
     const b = new THREE.Mesh(GEO.ball, glowMat(col)); b.position.copy(p);
     addFx(b, dur, f => { b.scale.setScalar(size * (0.3 + f)); b.material.opacity = peak * (1 - f); });
@@ -541,7 +569,7 @@ export function createFantasyTheme(ctx) {
     const a = new THREE.Mesh(GEO.arcG, glowMat("#ffffff"));
     const d = Math.hypot(e.x, e.y), ux = -e.x / d, uy = -e.y / d;
     a.position.set(e.x + ux * 0.62, 0.7, e.y + uy * 0.62); a.rotation.set(0, Math.atan2(ux, uy) + Math.PI / 2, 0.4);
-    const from = new THREE.Vector3(e.x, 0.7, e.y), at = a.position.clone();
+    const from = new THREE.Vector3(e.x, 0.7, e.y), at = chest(Math.atan2(e.y, e.x));
     addFx(a, 0.25, f => { a.material.opacity = 1 - f; a.scale.setScalar(0.8 + f * 0.6); }, () => hitFoe(from, at, 0.5));
   }
   function heal(target, from) {
