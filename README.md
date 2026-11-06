@@ -8,7 +8,9 @@ are an adventuring party fighting a big red dragon or an earth golem.
 
 ![Close-up of the figurines at their desks](docs/closeup.jpg)
 
-![The fantasy theme: a warrior, mage, archer and priest party fights a red dragon on a floating island](docs/fantasy.jpg)
+![The fantasy theme: an adventuring party of mages, archers and a priest fights a red dragon on a grassy floating island](docs/fantasy-dragon.jpg)
+
+![The same party fighting the earth golem instead](docs/fantasy-golem.jpg)
 
 <sub>Screenshots use made-up demo sessions.</sub>
 
