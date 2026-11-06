@@ -228,9 +228,10 @@ export function createFantasyTheme(ctx) {
       const q = new THREE.Group(); q.position.set(0.06, 0.18, -0.12); q.rotation.set(-0.15, 0, -0.45); F.hips.add(q);   // quiver
       part(new THREE.CylinderGeometry(0.035, 0.03, 0.17, 14), vinyl(WOOD), q);
       for (const [dx, col] of [[-0.016, "#f2efe6"], [0.0, "#e8655a"], [0.016, "#f2efe6"]]) part(new THREE.BoxGeometry(0.012, 0.05, 0.022), vinyl(col), q, dx, 0.1, 0);
-      // bow in the left hand: its long axis runs along the forearm's z, tips curving back toward the archer
+      // bow in the left hand, held upright in front (see upright()) with its tips and string toward the archer, so
+      // neither limb swings into the hood, body or cape however the arm moves. Built along z, stood up on y.
       const pts = []; for (let i = 0; i <= 8; i++) { const z = -0.26 + i * 0.065; pts.push(new THREE.Vector3(0, 0.09 * (z / 0.26) ** 2, z)); }
-      const bow = new THREE.Group(); bow.position.set(0, -0.1, 0); Lf.el.add(bow);
+      const bow = new THREE.Group(); bow.rotation.x = -Math.PI / 2; upright(F, Lf, { x: 0.35, z: 0 }).add(bow);
       part(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.013, 6), vinyl(WOOD), bow);
       const str = part(new THREE.CylinderGeometry(0.0025, 0.0025, 0.52, 4), vinyl("#f4f0e4"), bow, 0, 0.09, 0); str.rotation.x = Math.PI / 2;
       part(new THREE.CylinderGeometry(0.017, 0.017, 0.05, 10), vinyl(LEATHER), bow).rotation.x = Math.PI / 2;
