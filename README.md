@@ -2,7 +2,7 @@
 
 A tiny 3D office in your browser that shows your live Claude Code sessions, plus macOS
 notifications when one of them needs you. Prefer dragons? Switch to the fantasy theme, where your sessions
-are an adventuring party fighting a big red dragon.
+are an adventuring party fighting a big red dragon or an earth golem.
 
 ![The office: six sessions at their desks, one needs you (orange), one finished (green), four working](docs/office.jpg)
 
@@ -19,9 +19,12 @@ are an adventuring party fighting a big red dragon.
 - **Two themes:** switch between them with the toggle at the top right; your browser remembers the choice.
   - **Office:** desks, a window with a sky that follows your local time, a wall clock.
   - **Fantasy:** each session is a warrior, mage, archer or priest (picked at random, fixed per session).
-    Working = fighting the dragon (sword swings, fireballs, arrows, heals), needs you = turns to you and waves,
-    your turn = resting at the campfire. Party members come and go through a portal. The dragon sleeps when
+    Working = fighting the Foe (sword swings, fireballs, arrows, heals), needs you = turns to you and waves,
+    your turn = resting at the campfire. Party members come and go through a portal. The Foe sleeps when
     nobody is working, and the sky behind the island follows your local time.
+  - **Foes:** pick Dragon, Golem or Random (the default, rolled each time the page loads) next to the theme
+    toggle. The red dragon breathes a sweep of fire and roars; the earth golem slams the ground and pounds its
+    chest. Hits make the Foe recoil instead of flashing, so nothing on screen strobes.
 - **No clutter:** sessions that finished and haven't been touched for 30 minutes are hidden.
   Closed sessions disappear right away.
 - **Readable names:** your `--name` / `/rename` if you set one, otherwise Claude's automatic topic
@@ -64,12 +67,13 @@ running, stop it first so the new default applies.
 |---|---|
 | `hook.py` | Runs on Claude Code hook events. Writes each session's state to `~/.local/state/agent-office/` and sends notifications. Always exits 0 so it can never block Claude Code. |
 | `server.py` | Merges hook state with Claude Code's own live-session list (`~/.claude/sessions/`), applies the visibility rules, and serves the page plus `/api/state`. |
-| `office.html` | The page: header, theme toggle, session list. |
+| `office.html` | The page: header, theme and Foe toggles, session list. |
 | `js/app.js` | Renderer, camera, name tags, render loop, polling, theme switching. |
 | `js/crowd.js` | Who walks where: arrivals queue at the entrance, walk to their spot, move, and leave without bumping into each other. |
 | `js/figure.js` | The shared toy figure (body, face, hair) that each theme dresses. |
 | `js/sky.js` | The time-of-day sky (sun, moon, stars, clouds). |
 | `js/themes/office.js`, `js/themes/fantasy.js` | The two themes: world, outfits, poses, and what each state looks like. |
+| `js/themes/foes/` | The fantasy theme's Foes (`dragon.js`, `golem.js`): each builds its body and scenery and poses itself; `fantasy.js` runs their shared rhythm and hit recoil. |
 | `vendor/` | Three.js r169 (`three.module.min.js`, `RoundedBoxGeometry.js`), MIT licensed, see `vendor/THREE-LICENSE`. |
 | `common.py` | Shared paths and session naming. |
 | `settings_hooks.py` | Adds or removes this project's hooks in `settings.json` without touching anything else. |

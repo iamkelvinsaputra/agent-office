@@ -41,6 +41,7 @@
     border: 0; border-radius: 6px; padding: 4px 12px; cursor: pointer;
   }
   .themes button[aria-pressed="true"] { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,0.12); }
+  .themes[hidden] { display: none; }
   .themes button:focus-visible { outline: 2px solid var(--working); outline-offset: 1px; }
   main { flex: 1; display: flex; min-height: 0; }
   #stage { flex: 1; position: relative; min-width: 0; overflow: hidden; }
@@ -110,6 +111,9 @@
   </div>
   <div class="right">
     <span id="offline">Office server stopped. Run <code>agent-office</code></span>
+    <div class="themes foes" role="group" aria-label="Foe" hidden>
+      <button type="button" data-foe="dragon" aria-pressed="false">Dragon</button><button type="button" data-foe="golem" aria-pressed="false">Golem</button><button type="button" data-foe="random" aria-pressed="false">Random</button>
+    </div>
     <div class="themes" role="group" aria-label="Theme">
       <button type="button" data-theme="office" aria-pressed="false">Office</button><button type="button" data-theme="fantasy" aria-pressed="false">Fantasy</button>
     </div>

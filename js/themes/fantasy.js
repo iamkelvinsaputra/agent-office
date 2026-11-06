@@ -1,19 +1,20 @@
-// Fantasy: the sessions are an adventuring party (warrior, mage, archer, priest) fighting a big red dragon
-// on a floating island. Working = fighting, needs you = turns to you and waves, your turn = rests at the campfire.
+// Fantasy: the sessions are an adventuring party (warrior, mage, archer, priest) fighting a Foe (a red dragon
+// or an earth golem, see ./foes/) on a floating island. Working = fighting, needs you = turns to you and waves, your turn = rests at the campfire.
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/RoundedBoxGeometry.js";
 import { baseLook, hash, pick, shade, mix, vinyl, metal, part, sphere, rounded, headShell, onHead, HR } from "../figure.js";
 import { paintSky, hourNow, nightness } from "../sky.js";
+import { A0, polar, angOf, radOf, yawTo, frac, smooth, lerp } from "./foes/common.js";
+import { makeDragon } from "./foes/dragon.js";
+import { makeGolem } from "./foes/golem.js";
 
 const ZS = 0.8;
-const A0 = Math.PI / 4;                  // the party stands in front of the dragon, toward the viewer
-const RING = k => 2.9 + 0.95 * k;        // battle rings around the dragon: warriors in front, ranged behind
+const RING = k => 2.9 + 0.95 * k;        // battle rings around the Foe: warriors in front, ranged behind
 const STEP = 0.36;                      // angle between neighbours on a ring
 const CAP = k => (k % 2 ? 6 : 5);        // how many fit on each ring
 const SEAT_Z = 0.275;                    // log seat height
 const FIRE = { x: 3.85 * Math.cos(A0 + 1.45), y: 3.85 * Math.sin(A0 + 1.45) };
 const A_PORTAL = A0 - 1.3, A_CAMP = A0 + 1.12;
-const DS = 1.25;                         // dragon scale
 
 export const CLASSES = ["warrior", "mage", "archer", "priest"];
 const classOf = id => pick(CLASSES, hash(id + "#class"));
@@ -25,12 +26,7 @@ const TUNICS = ["#d8c7a0", "#b9cc9a", "#e0d2b0"];
 const SASHES = ["#4f8fe8", "#e07bb0", "#45b07a", "#e3b341"];
 const GOLD = "#e7b94a", SILVER = "#cfd5de", WOOD = "#8a5a36", LEATHER = "#5a4636", BOOTS = "#6b4a32";
 
-const polar = (r, a) => ({ x: r * Math.cos(a), y: r * Math.sin(a) });
-const angOf = p => Math.atan2(p.y, p.x), radOf = p => Math.hypot(p.x, p.y);
-const yawTo = (from, to) => Math.atan2(to.x - from.x, to.y - from.y);
-const frac = v => v - Math.floor(v);
-const smooth = (a, b, v) => { const x = Math.min(1, Math.max(0, (v - a) / (b - a))); return x * x * (3 - 2 * x); };
-const lerp = (a, b, f) => a + (b - a) * f;
+export const FOES = { dragon: makeDragon, golem: makeGolem };
 
 export function createFantasyTheme(ctx) {
   const { scene, sun, hemi, amb, reduceMotion, labelsEl, toScreen } = ctx;
@@ -41,7 +37,9 @@ export function createFantasyTheme(ctx) {
   const owned = [];
   const own = x => { owned.push(x); return x; };
   const fx = [];                 // live effects (fireballs, arrows, sparkles, breath)
-  let dragon = null, fireLight = null, flames = [], portalDisc = null, lavaMat = null;
+  let foeName = FOES[ctx.foe] ? ctx.foe : "dragon";
+  let foe = null, holder = null, rhythm = null;   // the Foe, the group its recoil moves, and its rhythm state
+  let fireLight = null, flames = [], portalDisc = null, lavaMat = null;
 
   // ---------- sky backdrop ----------
   const skyCv = document.createElement("canvas"); skyCv.width = skyCv.height = 512;
@@ -82,7 +80,7 @@ export function createFantasyTheme(ctx) {
     const r = rPortal(), d = 0.2 / r;
     return { in: polar(r, A_PORTAL + d), out: polar(r, A_PORTAL - d), yaw: yawTo(polar(r, A_PORTAL), { x: 0, y: 0 }), r };
   }
-  function arc(r, a0, a1) {   // waypoints along a circle around the dragon
+  function arc(r, a0, a1) {   // waypoints along a circle around the Foe
     const out = [], n = Math.max(1, Math.ceil(Math.abs(a1 - a0) * r / 0.35));
     for (let i = 1; i <= n; i++) out.push(polar(r, a0 + (a1 - a0) * i / n));
     return out;
@@ -297,7 +295,7 @@ export function createFantasyTheme(ctx) {
       Object.assign(Lh, { ux: -0.4 - 0.8 * up * m, uz: 0.45 * up + 0.12, fx: -0.2, fz: 0 });
       p.hx = -0.1 * up;
     }
-    if (f > 0) {   // fire breath swept past: lean back, arms up
+    if (f > 0) {   // flinch: the Foe's Big attack reached them, lean back, arms up
       p.lean = -0.3 * f;
       Object.assign(Lh, { ux: lerp(Lh.ux, -1.9, f), uz: lerp(Lh.uz, 0.5, f), fx: lerp(Lh.fx, -1.2, f) });
       p.hx = -0.2 * f;
@@ -354,7 +352,7 @@ export function createFantasyTheme(ctx) {
     group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
     for (const x of owned.splice(0)) x.dispose();
     for (const f of fx.splice(0)) f.done(true);
-    group = null; dragon = null; flames = []; fireLight = null; portalDisc = null;
+    group = null; foe = holder = rhythm = null; flames = []; fireLight = null; portalDisc = null;
   }
 
   function computeIsland() {
@@ -383,6 +381,7 @@ export function createFantasyTheme(ctx) {
   }
 
   function build() {
+    const prev = rhythm;   // a rebuild (new layout, new Foe) keeps the fight going: same sleep/awake state
     clear();
     group = new THREE.Group(); scene.add(group);
     computeIsland();
@@ -432,23 +431,12 @@ export function createFantasyTheme(ctx) {
       b.rotation.set(rnd() * 3, rnd() * 3, rnd() * 3); b.scale.y = 0.75;
     }
 
-    // the dragon's hoard behind it
-    const goldM = new THREE.MeshPhysicalMaterial({ color: GOLD, roughness: 0.3, metalness: 0.4, clearcoat: 0.6 }); own(goldM);
-    for (let i = 0; i < 46; i++) {
-      const a = A0 + Math.PI + (rnd() - 0.5) * 2.2, d = 1.1 + rnd() * 1.2, p = polar(d, a);
-      const c = mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.025, 14), goldM, p.x, 0.02 + rnd() * 0.12 * (2.3 - d), p.y);
-      c.rotation.set((rnd() - 0.5) * 1.2, 0, (rnd() - 0.5) * 1.2);
-    }
-    for (const [a, d, col] of [[0.6, 1.6, "#e2445c"], [-0.5, 1.9, "#46b4e8"], [0.1, 2.1, "#5ad08a"]]) {
-      const p = polar(d, A0 + Math.PI + a);
-      mesh(new THREE.OctahedronGeometry(0.09), new THREE.MeshPhysicalMaterial({ color: col, roughness: 0.15, clearcoat: 1 }), p.x, 0.12, p.y);
-    }
-    const chestP = polar(2.0, A0 + Math.PI - 0.95), chest = new THREE.Group();
-    chest.position.set(chestP.x, 0, chestP.y); chest.rotation.y = yawTo(chestP, { x: 0, y: 0 }) + 0.4; group.add(chest);
-    mesh(new RoundedBoxGeometry(0.5, 0.26, 0.34, 2, 0.03), mat("#8a5a36", 0.7), 0, 0.13, 0, chest);
-    mesh(new RoundedBoxGeometry(0.52, 0.12, 0.36, 2, 0.05), mat("#9c6a40", 0.7), 0, 0.31, -0.02, chest).rotation.x = -0.35;
-    for (const dx of [-0.17, 0.17]) mesh(new THREE.BoxGeometry(0.04, 0.27, 0.355), goldM, dx, 0.135, 0, chest);
-    mesh(new THREE.SphereGeometry(0.14, 16, 10), goldM, 0, 0.3, 0.05, chest).scale.y = 0.5;
+    // the Foe, in the middle, and its scenery behind it
+    foe = FOES[foeName]({ own, mesh, mat, addFx, glowMat, GEO, rnd, group, reach: rOut });
+    foe.scenery();
+    holder = new THREE.Group(); holder.add(foe.root); group.add(holder);
+    rhythm = { sleep: prev ? prev.sleep : 1, mode: "ready", modeT: 0, nextAt: prev ? prev.nextAt : 4, wasAwake: prev ? prev.wasAwake : false,
+      lastBusy: prev ? prev.lastBusy : -99, dir: 1, hit: 0, o: { x: 0, z: 0 }, v: { x: 0, z: 0 } };
 
     // portal: a stone arch with a swirling glow; people come and go through it
     const pa = A_PORTAL, pp = polar(rPortal() + 0.12, pa), portal = new THREE.Group();
@@ -493,9 +481,6 @@ export function createFantasyTheme(ctx) {
     sky.position.copy(sc); sky.lookAt(sc.clone().add(camDir)); sky.scale.setScalar(Ri * 1.08); sky.renderOrder = -1;
     group.add(sky);
 
-    dragon = makeDragon();
-    group.add(dragon.root);
-
     // shadows cover the island
     const S = Ri * 1.2 + 2;
     Object.assign(sun.shadow.camera, { left: -S, right: S, top: S, bottom: -S, near: 0.5, far: 80 });
@@ -504,102 +489,11 @@ export function createFantasyTheme(ctx) {
     sun.position.set(ix + 3, 14, iy + 9);
   }
 
-  // ---------- the dragon ----------
-  function makeDragon() {
-    const root = new THREE.Group(); root.scale.setScalar(DS); root.rotation.y = A0;
-    const body = new THREE.Group(); root.add(body);
-    const red = new THREE.MeshPhysicalMaterial({ color: "#d8392b", roughness: 0.45, clearcoat: 0.45, clearcoatRoughness: 0.35, emissive: "#ff2a10", emissiveIntensity: 0 });
-    own(red);
-    const belly = vinyl("#f4c68a"), horn = vinyl("#f3e7c9"), spike = vinyl("#f59a3a"), dark = vinyl("#3a1410");
-    const memb = new THREE.MeshPhysicalMaterial({ color: "#ee6a45", roughness: 0.55, clearcoat: 0.2, side: THREE.DoubleSide, shadowSide: THREE.DoubleSide });
-    own(memb);
-    const P = (geo, m, parent, x, y, z) => part(geo, m, parent, x, y, z);
-
-    P(sphere(1.0, 40, 30), red, body, 0, 1.0, 0).scale.set(1.0, 1.12, 0.92);
-    P(sphere(0.8, 36, 26), belly, body, 0, 0.98, 0.4).scale.set(0.84, 1.04, 0.56);
-    for (let i = 0; i < 4; i++) { const r = P(new THREE.TorusGeometry(0.5 - Math.abs(i - 1.5) * 0.06, 0.018, 6, 30, Math.PI), vinyl("#e3ab6e"), body, 0, 0.55 + i * 0.27, 0.78 - Math.abs(i - 1.5) * 0.04); r.rotation.set(Math.PI / 2 - 0.15, 0, 0); r.scale.set(1, 0.55, 1); }
-    for (const s of [-1, 1]) {
-      P(sphere(0.5, 28, 20), red, body, s * 0.72, 0.45, 0.02).scale.set(0.85, 0.85, 1.15);           // haunch
-      const foot = P(sphere(0.3, 20, 14), red, body, s * 0.8, 0.13, 0.48); foot.scale.set(1, 0.55, 1.35);
-      for (let c = -1; c <= 1; c++) { const cl = P(new THREE.ConeGeometry(0.05, 0.13, 10), horn, body, s * 0.8 + c * 0.12, 0.08, 0.86); cl.rotation.x = Math.PI / 2; }
-    }
-    const arms = [-1, 1].map(s => {
-      const g = new THREE.Group(); g.position.set(s * 0.6, 1.45, 0.42); body.add(g);
-      const a = P(new THREE.CapsuleGeometry(0.15, 0.32, 6, 14), red, g, 0, -0.2, 0.08); a.rotation.x = 0.45;
-      P(sphere(0.17, 16, 12), red, g, 0, -0.42, 0.2);
-      for (let c = -1; c <= 1; c++) { const cl = P(new THREE.ConeGeometry(0.035, 0.1, 8), horn, g, c * 0.08, -0.5, 0.33); cl.rotation.x = 1.9; }
-      g.rotation.z = s * -0.15;
-      return g;
-    });
-    // back and tail spikes
-    for (let i = 0; i < 5; i++) {
-      const a = 0.3 + i * 0.32, y = 1.0 + 1.06 * Math.cos(a), z = -0.88 * Math.sin(a);
-      const sp = P(new THREE.ConeGeometry(0.11 - i * 0.008, 0.26, 12), spike, body, 0, y, z); sp.rotation.x = -a;
-    }
-    // tail: a tapering chain curling around the right side
-    const tail = new THREE.Group(); tail.position.set(0, 0.4, -0.7); body.add(tail);
-    const curve = new THREE.CatmullRomCurve3([[0, 0, 0], [0.55, -0.15, -0.5], [1.25, -0.22, -0.35], [1.62, -0.24, 0.25], [1.45, -0.25, 0.85], [1.05, -0.24, 1.15]].map(v => new THREE.Vector3(...v)));
-    for (let i = 0; i <= 18; i++) {
-      const u = i / 18, p = curve.getPoint(u), r = 0.36 * (1 - u) + 0.07;
-      P(sphere(r, 18, 12), red, tail, p.x, p.y + r * 0.4, p.z);
-      if (i % 4 === 2 && i < 16) { const sp = P(new THREE.ConeGeometry(r * 0.35, r * 0.8, 10), spike, tail, p.x, p.y + r * 1.25, p.z); }
-    }
-    const tipP = curve.getPoint(1), tip = P(new THREE.OctahedronGeometry(0.17), spike, tail, tipP.x - 0.12, tipP.y + 0.08, tipP.z + 0.05);
-    tip.scale.set(1.3, 0.35, 1);
-    // neck and head
-    const neck = new THREE.Group(); neck.position.set(0, 1.8, 0.08); body.add(neck);
-    P(new THREE.CapsuleGeometry(0.35, 0.5, 8, 20), red, neck, 0, 0.42, 0.1).rotation.x = 0.28;
-    P(new THREE.CapsuleGeometry(0.22, 0.48, 8, 16), belly, neck, 0, 0.36, 0.33).rotation.x = 0.28;
-    const head = new THREE.Group(); head.position.set(0, 0.98, 0.28); neck.add(head);
-    P(sphere(0.6, 36, 28), red, head, 0, 0, 0).scale.set(1.05, 0.92, 1.0);
-    P(sphere(0.42, 30, 22), red, head, 0, -0.14, 0.5).scale.set(0.92, 0.62, 1.05);
-    for (const s of [-1, 1]) {
-      P(sphere(0.045, 10, 8), dark, head, s * 0.12, -0.02, 0.92);
-      const eye = P(sphere(0.15, 20, 16), vinyl("#ffd84a", false, "#ffb000"), head, s * 0.29, 0.12, 0.42); eye.scale.set(1, 1, 0.62);
-      const pupil = P(sphere(0.055, 12, 10), dark, head, s * 0.31, 0.12, 0.5); pupil.scale.set(0.35, 1.25, 0.5);
-      P(sphere(0.02, 8, 6), new THREE.MeshBasicMaterial({ color: "#fff" }), head, s * 0.27, 0.19, 0.52).userData.shine = true;
-      const lid = P(new THREE.SphereGeometry(0.16, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), red, head, s * 0.29, 0.12, 0.42);
-      lid.scale.set(1, 1, 0.66); lid.rotation.x = -1.45;
-      const brow = P(new THREE.CapsuleGeometry(0.045, 0.16, 4, 10), red, head, s * 0.27, 0.3, 0.38); brow.rotation.set(0, 0, s * 1.2);
-      const h1 = P(new THREE.ConeGeometry(0.12, 0.55, 16), horn, head, s * 0.3, 0.42, -0.2); h1.rotation.set(-0.95, 0, s * -0.3);
-      const h2 = P(new THREE.ConeGeometry(0.07, 0.28, 12), horn, head, s * 0.46, 0.2, -0.32); h2.rotation.set(-1.2, 0, s * -0.9);
-      const fr = P(new THREE.ConeGeometry(0.08, 0.24, 10), spike, head, s * 0.58, -0.06, -0.08); fr.rotation.set(-0.6, 0, s * -1.5);
-      P(new THREE.ConeGeometry(0.03, 0.08, 8), horn, head, s * 0.2, -0.33, 0.78).rotation.x = Math.PI;
-    }
-    head.userData.lids = head.children.filter(c => c.geometry && c.geometry.type === "SphereGeometry" && c.geometry.parameters.thetaLength === Math.PI / 2);
-    head.userData.shines = head.children.filter(c => c.userData.shine);
-    for (let i = 0; i < 3; i++) P(new THREE.ConeGeometry(0.07, 0.18, 10), spike, head, 0, 0.5 - i * 0.04, 0.05 - i * 0.2).rotation.x = -0.5 - i * 0.2;
-    const jaw = new THREE.Group(); jaw.position.set(0, -0.24, 0.12); head.add(jaw);
-    P(sphere(0.36, 26, 18), belly, jaw, 0, -0.06, 0.4).scale.set(0.82, 0.38, 1.0);
-    P(sphere(0.3, 20, 14), vinyl("#8a1f1a"), head, 0, -0.27, 0.5).scale.set(0.75, 0.25, 0.95);
-    const mouth = new THREE.Object3D(); mouth.position.set(0, -0.28, 0.9); head.add(mouth);
-    // wings
-    const wings = [-1, 1].map(s => {
-      const w = new THREE.Group(); w.position.set(s * 0.5, 1.62, -0.5); body.add(w);
-      const inner = new THREE.Group(); inner.scale.x = s; w.add(inner);
-      const sh = new THREE.Shape();
-      sh.moveTo(0, 0); sh.lineTo(0.5, 0.95); sh.lineTo(1.05, 1.55); sh.lineTo(2.05, 1.45);
-      sh.quadraticCurveTo(1.6, 1.12, 1.95, 0.62); sh.quadraticCurveTo(1.45, 0.5, 1.45, 0.0);
-      sh.quadraticCurveTo(0.9, 0.15, 0.25, -0.35); sh.lineTo(0, 0);
-      const m = part(new THREE.ShapeGeometry(sh, 8), memb, inner); m.castShadow = true;
-      const bone = (a, b, r) => {
-        const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), len = A.distanceTo(B);
-        const c = part(new THREE.CapsuleGeometry(r, len, 4, 10), red, inner);
-        c.position.copy(A).add(B).multiplyScalar(0.5); c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), B.clone().sub(A).normalize());
-      };
-      bone([0, 0, 0], [0.5, 0.95, 0], 0.07); bone([0.5, 0.95, 0], [1.05, 1.55, 0], 0.055);
-      bone([1.05, 1.55, 0], [2.05, 1.45, 0], 0.035); bone([1.05, 1.55, 0], [1.95, 0.62, 0], 0.03); bone([1.05, 1.55, 0], [1.45, 0.0, 0], 0.03);
-      P(new THREE.ConeGeometry(0.05, 0.16, 8), horn, inner, 1.05, 1.66, 0);
-      return w;
-    });
-    root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    return { root, body, neck, head, jaw, arms, wings, tail, mouth, red, sleep: 1, mode: "idle", modeT: 0, nextAt: 4, flash: 0, wasAwake: false, sweep: 0 };
-  }
-
   // ---------- effects ----------
   const GEO = {
     ball: new THREE.SphereGeometry(1, 14, 10), cone: new THREE.ConeGeometry(1, 1, 8), shaft: new THREE.CylinderGeometry(0.008, 0.008, 0.32, 5),
     ring: new THREE.TorusGeometry(1, 0.06, 6, 32), arcG: new THREE.TorusGeometry(0.34, 0.025, 6, 20, 2.2),
+    chip: new THREE.IcosahedronGeometry(1, 0), flatRing: new THREE.RingGeometry(0.88, 1, 64),
   };
   const glowMat = col => new THREE.MeshBasicMaterial({ color: col, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
   function addFx(obj, dur, update, onEnd) {
@@ -610,9 +504,17 @@ export function createFantasyTheme(ctx) {
   }
   const tv = new THREE.Vector3(), tv2 = new THREE.Vector3();
   const chest = () => new THREE.Vector3(0.75 * Math.cos(A0), 1.5, 0.75 * Math.sin(A0));
-  function burst(p, col, size, dur = 0.35) {
+  function burst(p, col, size, dur = 0.35, peak = 1) {
     const b = new THREE.Mesh(GEO.ball, glowMat(col)); b.position.copy(p);
-    addFx(b, dur, f => { b.scale.setScalar(size * (0.3 + f)); b.material.opacity = 1 - f; });
+    addFx(b, dur, f => { b.scale.setScalar(size * (0.3 + f)); b.material.opacity = peak * (1 - f); });
+  }
+  // a hit lands on the Foe: it recoils away from where the hit came from (movement only, no flashing)
+  function hitFoe(from, at, strength) {
+    if (!foe) return;
+    const dir = new THREE.Vector3(-from.x, 0, -from.z).normalize(), kick = foe.recoil.kick * strength;
+    rhythm.v.x += dir.x * kick; rhythm.v.z += dir.z * kick;
+    rhythm.hit = Math.max(rhythm.hit, strength);
+    if (foe.onHit) foe.onHit(at, dir);
   }
   function fireball(from, glow) {
     const g = new THREE.Group(), core = new THREE.Mesh(GEO.ball, glowMat("#fff1b0")), halo = new THREE.Mesh(GEO.ball, glowMat(glow));
@@ -620,7 +522,7 @@ export function createFantasyTheme(ctx) {
     const to = chest().add(new THREE.Vector3((Math.random() - 0.5) * 0.6, (Math.random() - 0.3) * 0.6, (Math.random() - 0.5) * 0.6));
     const p0 = from.clone();
     addFx(g, 0.8, f => { g.position.lerpVectors(p0, to, f); g.position.y += Math.sin(f * Math.PI) * 0.6; halo.scale.setScalar(0.15 + 0.03 * Math.sin(f * 40)); },
-      () => { burst(to, glow, 0.45); if (dragon) dragon.flash = 1; });
+      () => { burst(to, glow, 0.38, 0.35, 0.75); hitFoe(p0, to, 1); });
   }
   function arrow(from) {
     const g = new THREE.Group(), shaftM = new THREE.MeshStandardMaterial({ color: WOOD }), tipM = new THREE.MeshStandardMaterial({ color: "#d9dde4", metalness: 0.3 });
@@ -633,13 +535,14 @@ export function createFantasyTheme(ctx) {
       tv.lerpVectors(p0, to, f); tv.y += Math.sin(f * Math.PI) * 0.35;
       tv2.lerpVectors(p0, to, Math.min(1, f + 0.02)); tv2.y += Math.sin(Math.min(1, f + 0.02) * Math.PI) * 0.35;
       g.position.copy(tv); g.lookAt(tv2);
-    }, () => { fl.geometry.dispose(); burst(to, "#fff3c0", 0.22, 0.25); if (dragon) dragon.flash = Math.max(dragon.flash, 0.6); });
+    }, () => { fl.geometry.dispose(); burst(to, "#fff3c0", 0.22, 0.25); hitFoe(p0, to, 0.6); });
   }
   function slash(e) {
     const a = new THREE.Mesh(GEO.arcG, glowMat("#ffffff"));
     const d = Math.hypot(e.x, e.y), ux = -e.x / d, uy = -e.y / d;
     a.position.set(e.x + ux * 0.62, 0.7, e.y + uy * 0.62); a.rotation.set(0, Math.atan2(ux, uy) + Math.PI / 2, 0.4);
-    addFx(a, 0.25, f => { a.material.opacity = 1 - f; a.scale.setScalar(0.8 + f * 0.6); }, () => { if (dragon) dragon.flash = Math.max(dragon.flash, 0.5); });
+    const from = new THREE.Vector3(e.x, 0.7, e.y), at = a.position.clone();
+    addFx(a, 0.25, f => { a.material.opacity = 1 - f; a.scale.setScalar(0.8 + f * 0.6); }, () => hitFoe(from, at, 0.5));
   }
   function heal(target, from) {
     if (from) burst(from, "#fff4c0", 0.2, 0.4);
@@ -650,18 +553,6 @@ export function createFantasyTheme(ctx) {
       addFx(sp, 1.1 + i * 0.05, f => { sp.position.set(target.x + r * Math.cos(a + f * 2), 0.1 + f * 1.2, target.y + r * Math.sin(a + f * 2)); sp.scale.setScalar(0.035 * (1 - f * 0.5)); sp.material.opacity = 1 - f; });
     }
   }
-  function breathPuff(from, to) {
-    const b = new THREE.Mesh(GEO.ball, glowMat("#ffd36a")), p0 = from.clone(), jitter = new THREE.Vector3((Math.random() - 0.5) * 0.5, Math.random() * 0.2, (Math.random() - 0.5) * 0.5);
-    const c1 = new THREE.Color("#fff0a0"), c2 = new THREE.Color("#ff6a1a"), c3 = new THREE.Color("#a0201a");
-    addFx(b, 0.7, f => {
-      b.position.lerpVectors(p0, to, Math.min(1, f * 1.15)).addScaledVector(jitter, f);
-      if (f > 0.8) b.position.y += (f - 0.8) * 1.5;
-      b.scale.setScalar(0.1 + f * 0.38);
-      b.material.color.copy(f < 0.4 ? c1.clone().lerp(c2, f / 0.4) : c2.clone().lerp(c3, (f - 0.4) / 0.6));
-      b.material.opacity = f < 0.1 ? f * 10 : 1 - (f - 0.1) / 0.9;
-    });
-  }
-
   // ---------- per-frame ----------
   const handPos = (e, i) => e.fig.arms[i].hand.getWorldPosition(new THREE.Vector3());
   function update(t, dt, ents) {
@@ -693,74 +584,49 @@ export function createFantasyTheme(ctx) {
       f.update(k);
       if (k >= 1) { fx.splice(fx.indexOf(f), 1); f.done(); }
     }
-    animateDragon(t, dt, m, fighters, ents);
+    animateFoe(t, dt, m, fighters);
   }
 
-  function animateDragon(t, dt, m, fighters, ents) {
-    const D = dragon; if (!D) return;
-    const awake = fighters.length > 0;
-    if (awake) D.lastBusy = t;
-    const wantSleep = !awake && t - (D.lastBusy ?? -99) > 4;
-    D.sleep += ((wantSleep ? 1 : 0) - D.sleep) * Math.min(1, dt * (wantSleep ? 0.8 : 2.5));
-    if (reduceMotion) D.sleep = wantSleep ? 1 : 0;
-    D.modeT += dt;
-    if (m && awake && !D.wasAwake && D.sleep > 0.3) { D.mode = "roar"; D.modeT = 0; }
-    D.wasAwake = awake;
-    if (m && awake && D.mode === "idle" && D.sleep < 0.2 && t > D.nextAt) {
-      D.mode = Math.random() < 0.75 ? "windup" : "roar"; D.modeT = 0; D.sweepDir = Math.random() < 0.5 ? 1 : -1;
+  // the shared rhythm: Asleep when nobody works; awake it is ready, winds up its Big attack and recovers, or taunts
+  function animateFoe(t, dt, m, fighters) {
+    if (!foe) return;
+    const awake = fighters.length > 0, T = foe.timing;
+    if (awake) rhythm.lastBusy = t;
+    const wantSleep = !awake && t - rhythm.lastBusy > 4;
+    rhythm.sleep += ((wantSleep ? 1 : 0) - rhythm.sleep) * Math.min(1, dt * (wantSleep ? 0.8 : 2.5));
+    if (reduceMotion) rhythm.sleep = wantSleep ? 1 : 0;
+    rhythm.modeT += dt;
+    if (m && awake && !rhythm.wasAwake && rhythm.sleep > 0.3) { rhythm.mode = "taunt"; rhythm.modeT = 0; }
+    rhythm.wasAwake = awake;
+    if (m && awake && rhythm.mode === "ready" && rhythm.sleep < 0.2 && t > rhythm.nextAt) {
+      rhythm.mode = Math.random() < 0.75 ? "windup" : "taunt"; rhythm.modeT = 0; rhythm.dir = Math.random() < 0.5 ? 1 : -1;
     }
-    if (!awake && D.mode !== "idle" && D.mode !== "recover") { D.mode = "recover"; D.modeT = 0; }
-    // targets
-    let neckX = 0.04 * Math.sin(t * 0.8) * m, headX = 0.05 * Math.sin(t * 0.9 + 1) * m, jaw = 0.04 + 0.03 * Math.sin(t * 0.7) * m;
-    let headY = 0.18 * Math.sin(t * 0.33) * m, spread = 0, flap = 0.07 * Math.sin(t * 1.4) * m, armUp = 0;
-    const dur = { windup: 0.7, breath: 2.0, recover: 0.7, roar: 1.6 }[D.mode];
-    if (D.mode === "windup") { neckX = -0.3; headX = -0.25; jaw = 0.25; headY = 0.55 * D.sweepDir; armUp = 0.3; }
-    if (D.mode === "breath") {
-      const f = D.modeT / 2.0;
-      neckX = 0.32; headX = 0.38; jaw = 0.62; headY = lerp(0.55, -0.55, smooth(0, 1, f)) * D.sweepDir; armUp = 0.2;
-      // puffs from the mouth to the ground just in front of the warriors
-      D.sweep = A0 - headY;
-      const to = new THREE.Vector3(2.25 * Math.cos(D.sweep), 0.15, 2.25 * Math.sin(D.sweep));
-      const from = D.mouth.getWorldPosition(new THREE.Vector3());
-      D.acc = (D.acc || 0) + dt * 55;
-      while (D.acc > 1) { D.acc--; breathPuff(from, to); }
-      for (const e of ents.values()) {
-        if (!e.fig || e.phase !== "seated" || e.data.state !== "working") continue;
-        const da = Math.atan2(Math.sin(angOf(e) - D.sweep), Math.cos(angOf(e) - D.sweep));
-        if (Math.abs(da) < 0.22) e.t.flinch = 1;
-      }
+    if (!awake && rhythm.mode !== "ready" && rhythm.mode !== "recover") { rhythm.mode = "recover"; rhythm.modeT = 0; }
+    const dur = T[rhythm.mode];
+    if (dur && rhythm.modeT >= dur) {
+      rhythm.mode = rhythm.mode === "windup" ? "bigAttack" : rhythm.mode === "bigAttack" ? "recover" : "ready"; rhythm.modeT = 0;
+      if (rhythm.mode === "ready") rhythm.nextAt = t + 7 + Math.random() * 6;
     }
-    if (D.mode === "roar") { const f = D.modeT / 1.6, k = Math.sin(Math.min(1, f) * Math.PI); neckX = -0.35 * k; headX = -0.5 * k; jaw = 0.75 * k; spread = 0.45 * k; flap = 0.25 * Math.sin(t * 9) * k; armUp = 0.6 * k; headY = 0.1 * Math.sin(t * 20) * k; }
-    if (dur && D.modeT >= dur) {
-      D.mode = D.mode === "windup" ? "breath" : D.mode === "breath" ? "recover" : "idle"; D.modeT = 0;
-      if (D.mode === "idle") D.nextAt = t + 7 + Math.random() * 6;
+    // hit recoil: a damped spring tilting the whole Foe away from the hits; rapid hits add up to a shudder
+    const R = foe.recoil, MAX = 0.12;
+    for (const ax of ["x", "z"]) {
+      rhythm.v[ax] += (-R.stiff * rhythm.o[ax] - R.damp * rhythm.v[ax]) * dt;
+      rhythm.o[ax] = Math.max(-MAX, Math.min(MAX, rhythm.o[ax] + rhythm.v[ax] * dt));
     }
-    // asleep: head down, wings folded, eyes shut, slow breathing
-    const s = D.sleep;
-    neckX = lerp(neckX, 0.42, s); headX = lerp(headX, 0.32, s); jaw = lerp(jaw, 0, s); headY = lerp(headY, 0.25, s);
-    spread = lerp(spread, -1.1, s); flap *= 1 - s; armUp *= 1 - s;
-    const k = reduceMotion ? 1 : Math.min(1, dt * 6), ap = (o, key, v) => { o[key] += (v - o[key]) * k; };
-    ap(D.neck.rotation, "x", neckX); ap(D.head.rotation, "x", headX); ap(D.head.rotation, "y", headY); ap(D.jaw.rotation, "x", jaw);
-    D.wings.forEach((w, i) => { const sg = i ? 1 : -1; ap(w.rotation, "y", sg * (0.55 - spread * 0.6)); ap(w.rotation, "z", sg * (-0.15 + spread * 0.6 + flap)); });
-    D.arms.forEach((a, i) => ap(a.rotation, "x", -armUp * 1.2));
-    D.tail.rotation.y = 0.08 * Math.sin(t * 0.9) * m * (1 - s * 0.7);
-    const br = Math.sin(t * (s > 0.5 ? 1.1 : 1.9)) * m;
-    D.body.scale.set(1 + 0.012 * br, 1 + 0.02 * br, 1 + 0.012 * br);
-    D.body.position.y = -0.08 * s;
-    const shut = Math.max(s > 0.6 ? 1 : 0, (t % 5.3) < 0.15 && m ? 1 : 0);
-    for (const lid of D.head.userData.lids) lid.rotation.x = lerp(-1.45, 0.05, shut);
-    for (const sh of D.head.userData.shines) sh.visible = !shut;
-    D.flash = Math.max(0, D.flash - dt * 5);
-    D.red.emissiveIntensity = D.flash * 0.35;
+    holder.rotation.set(rhythm.o.z, 0, -rhythm.o.x);
+    holder.position.set(rhythm.o.x * 0.6, 0, rhythm.o.z * 0.6);
+    rhythm.hit = Math.max(0, rhythm.hit - dt * 3);
+    const flinch = test => { for (const e of fighters) if (test(e)) e.t.flinch = 1; };
+    foe.animate({ t, dt, m, sleep: rhythm.sleep, mode: rhythm.mode, modeT: rhythm.modeT, dir: rhythm.dir, hit: rhythm.hit, fighters, flinch, reduceMotion });
   }
 
-  // "z z Z" over the dragon's head while it sleeps
+  // "z z Z" over the Foe's head while it sleeps
   const zzz = document.createElement("div"); zzz.className = "zzz"; zzz.innerHTML = "<span>z</span><span>z</span><span>Z</span>";
   labelsEl.appendChild(zzz);
   function overlay() {
-    if (!dragon) { zzz.style.display = "none"; return; }
-    zzz.style.display = dragon.sleep > 0.6 ? "" : "none";
-    const p = dragon.head.getWorldPosition(new THREE.Vector3()), q = toScreen(p.x, p.y + 0.9, p.z);
+    if (!foe) { zzz.style.display = "none"; return; }
+    zzz.style.display = rhythm.sleep > 0.6 ? "" : "none";
+    const p = foe.head.getWorldPosition(new THREE.Vector3()), q = toScreen(p.x, p.y + foe.zzzY, p.z);
     zzz.style.transform = `translate(${q.x.toFixed(1)}px, ${q.y.toFixed(1)}px)`;
   }
 
@@ -768,6 +634,12 @@ export function createFantasyTheme(ctx) {
     name: "fantasy",
     look, dress, assign, layout, door, home, pathHome, pathOut, pose,
     build, update, overlay,
+    foeRhythm: () => rhythm,   // for poking at from the console, e.g. agentOffice.theme.foeRhythm().nextAt = 0
+    setFoe(name) {   // swap the Foe right away
+      if (!FOES[name] || name === foeName) return;
+      foeName = name;
+      if (group) build();
+    },
     bounds() {
       const pts = [], { x, y, r } = isle;
       for (const [hx, hy] of isle.hull || []) pts.push([x + hx, 0.3, y + hy], [x + hx * 0.4, -r * 0.4, y + hy * 0.4]);

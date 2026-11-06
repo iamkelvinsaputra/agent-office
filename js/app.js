@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { K, LEG, HR, makeFigure, disposeFigure, bump, angleTo } from "./figure.js";
 import { entities, isWalking, setCrowdTheme, syncEntities, settleAll, stepEntities } from "./crowd.js";
 import { createOfficeTheme } from "./themes/office.js";
-import { createFantasyTheme } from "./themes/fantasy.js";
+import { createFantasyTheme, FOES } from "./themes/fantasy.js";
 
 const THEMES = { office: createOfficeTheme, fantasy: createFantasyTheme };
 const STATE_LABEL = { needs_you: "needs you", working: "working", your_turn: "your turn" };
@@ -86,18 +86,37 @@ function savedTheme() {
   try { const v = localStorage.getItem(STORE_KEY); if (THEMES[v]) return v; } catch {}
   return THEMES[serverDefault] ? serverDefault : "office";
 }
+// the Foe the fantasy party fights: picked in the header, remembered per browser; Random rolls once per page load
+const FOE_KEY = "agent-office-foe", FOE_NAMES = Object.keys(FOES);
+const randomFoe = FOE_NAMES[Math.floor(Math.random() * FOE_NAMES.length)];
+let foeChoice = "random";
+try { const v = localStorage.getItem(FOE_KEY); if (v === "random" || FOES[v]) foeChoice = v; } catch {}
+const foeName = () => foeChoice === "random" ? randomFoe : foeChoice;
+const foesEl = document.querySelector(".foes");
+function showFoeChoice() {
+  for (const b of foesEl.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.foe === foeChoice));
+}
+for (const b of foesEl.querySelectorAll("button")) b.addEventListener("click", () => {
+  foeChoice = b.dataset.foe;
+  try { localStorage.setItem(FOE_KEY, foeChoice); } catch {}
+  showFoeChoice();
+  if (theme && theme.setFoe) theme.setFoe(foeName());
+});
+showFoeChoice();
+
 const crowdHooks = {
   add(e) { if (gl) addFigure(e); },
   layout() { if (gl) { theme.build(); frameCamera(true); } },
 };
 function setTheme(name) {
   if (!THEMES[name] || (theme && theme.name === name)) return;
-  for (const b of document.querySelectorAll(".themes button")) b.setAttribute("aria-pressed", String(b.dataset.theme === name));
+  for (const b of document.querySelectorAll(".themes button[data-theme]")) b.setAttribute("aria-pressed", String(b.dataset.theme === name));
+  foesEl.hidden = name !== "fantasy";
   if (!gl) return;
   const first = !theme;
   if (theme) { for (const e of entities.values()) removeFigure(e); theme.dispose(); }
   resetLights();
-  theme = THEMES[name]({ scene, sun, hemi, amb, reduceMotion, labelsEl, toScreen });
+  theme = THEMES[name]({ scene, sun, hemi, amb, reduceMotion, labelsEl, toScreen, foe: foeName() });
   setCrowdTheme(theme, crowdHooks);
   if (!first) settleAll();
   theme.layout(entities);
@@ -105,7 +124,7 @@ function setTheme(name) {
   for (const e of entities.values()) addFigure(e);
   frameCamera(true);
 }
-for (const b of document.querySelectorAll(".themes button")) b.addEventListener("click", () => {
+for (const b of document.querySelectorAll(".themes button[data-theme]")) b.addEventListener("click", () => {
   try { localStorage.setItem(STORE_KEY, b.dataset.theme); } catch {}
   setTheme(b.dataset.theme);
 });
@@ -249,7 +268,7 @@ async function poll() {
   }
   renderList();
 }
-window.agentOffice = { entities };   // handy for poking at from the browser console
+window.agentOffice = { entities, get theme() { return theme; } };   // handy for poking at from the browser console
 setTheme(savedTheme());
 if (gl) requestAnimationFrame(frame);
 poll(); setInterval(poll, 1000);

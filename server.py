@@ -13,7 +13,7 @@ from common import REGISTRY_DIR, STATE_DIR, read_json, session_name  # noqa: E40
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VENDOR_NAME = re.compile(r"^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*\.js$")
-JS_NAME = re.compile(r"^(themes/)?[A-Za-z0-9_-]+\.js$")
+JS_NAME = re.compile(r"^(themes/(foes/)?)?[A-Za-z0-9_-]+\.js$")
 THEMES = ("office", "fantasy")
 HOME = os.path.expanduser("~")
 PORT = int(os.environ.get("AGENT_OFFICE_PORT", "47823"))
