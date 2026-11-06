@@ -524,6 +524,7 @@ export function createFantasyTheme(ctx) {
     group.add(obj);
     const f = { t: 0, dur, update, done(quiet) { group && group.remove(obj); obj.traverse(o => o.material && o.material.dispose()); if (onEnd && !quiet) onEnd(); } };
     fx.push(f);
+    update(0);   // place it now: an effect added after this frame's fx update would otherwise be drawn once at the origin, full size
     return f;
   }
   const tv = new THREE.Vector3(), tv2 = new THREE.Vector3();

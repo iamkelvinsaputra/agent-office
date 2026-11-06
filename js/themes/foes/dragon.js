@@ -113,7 +113,7 @@ export function makeDragon(kit) {
     addFx(b, 0.7, f => {
       b.position.lerpVectors(p0, to, Math.min(1, f * 1.15)).addScaledVector(jitter, f);
       if (f > 0.8) b.position.y += (f - 0.8) * 1.5;
-      b.scale.setScalar(0.1 + f * 0.38);
+      b.scale.setScalar(0.08 + f * 0.17);   // small: many overlap, so big puffs pile up into one huge ball
       b.material.color.copy(f < 0.4 ? c1.clone().lerp(c2, f / 0.4) : c2.clone().lerp(c3, (f - 0.4) / 0.6));
       b.material.opacity = f < 0.1 ? f * 10 : 1 - (f - 0.1) / 0.9;
     });
@@ -150,11 +150,11 @@ export function makeDragon(kit) {
       let neckX = 0.04 * Math.sin(t * 0.8) * m, headX = 0.05 * Math.sin(t * 0.9 + 1) * m, jawX = 0.04 + 0.03 * Math.sin(t * 0.7) * m;
       let headY = 0.18 * Math.sin(t * 0.33) * m, spread = 0, flap = 0.07 * Math.sin(t * 1.4) * m, armUp = 0;
       if (mode === "windup") { neckX = -0.3; headX = -0.25; jawX = 0.25; headY = 0.55 * dir; armUp = 0.3; }
-      if (mode === "bigAttack") {   // fire breath: puffs from the mouth to the ground just in front of the warriors
+      if (mode === "bigAttack") {   // fire breath: puffs from the mouth to the ground where the front warriors stand
         const f = modeT / timing.bigAttack;
         neckX = 0.32; headX = 0.38; jawX = 0.62; headY = lerp(0.55, -0.55, smooth(0, 1, f)) * dir; armUp = 0.2;
-        const sweep = A0 - headY;
-        const to = new THREE.Vector3(2.25 * Math.cos(sweep), 0.15, 2.25 * Math.sin(sweep));
+        const sweep = A0 - headY, R = 2.9;   // the front battle ring (RING(0) in fantasy.js)
+        const to = new THREE.Vector3(R * Math.cos(sweep), 0.15, R * Math.sin(sweep));
         const from = mouth.getWorldPosition(new THREE.Vector3());
         acc += dt * 55;
         while (acc > 1) { acc--; breathPuff(from, to); }
