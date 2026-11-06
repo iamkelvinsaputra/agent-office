@@ -31,33 +31,43 @@ export function makeGolem(kit) {
 
   const root = new THREE.Group(); root.scale.setScalar(DS); root.rotation.y = A0;
   const body = new THREE.Group(); root.add(body);
-  // stumpy legs
+  // long, thick legs: a shin and a thigh each, on broad flat feet
   for (const s of [-1, 1]) {
-    rock(0.36, stoneD, body, s * 0.5, 0.34, -0.05, 1, 1.05, 1);
-    rock(0.3, stone, body, s * 0.55, 0.1, 0.1, 1.15, 0.45, 1.35, 0);
+    rock(0.32, stone, body, s * 0.47, 0.1, 0.12, 1.15, 0.45, 1.35, 0);
+    rock(0.36, stoneD, body, s * 0.43, 0.44, 0, 1.0, 1.05, 1.0);
+    rock(0.34, stone, body, s * 0.4, 0.86, -0.03, 1.05, 1.0, 1.05);
   }
-  rock(0.55, stoneD, body, 0, 0.78, -0.05, 1.2, 0.85, 1);   // hips
-  // hunched torso: a big boulder leaning forward, crystal heart and rune cracks on the front
-  const torso = new THREE.Group(); torso.position.set(0, 1.45, 0); torso.rotation.x = 0.28; body.add(torso);
-  const TR = [1.05, 0.88, 0.82];
-  rock(0.95, stone, torso, 0, 0, 0, TR[0] / 0.95, TR[1] / 0.95, TR[2] / 0.95);
-  rock(0.5, stoneD, torso, 0, 0.15, -0.65, 1.3, 1, 0.8);                     // back hump
-  for (const [x, y, z, r] of [[-0.35, 0.72, -0.2, 0.32], [0.4, 0.68, -0.35, 0.28], [0, 0.8, -0.5, 0.3], [0.1, 0.45, -0.8, 0.26]]) rock(r, moss, torso, x, y, z, 1.2, 0.45, 1.1);
-  for (const [x, y, z, r] of [[-0.55, 0.55, 0.3, 0.16], [0.7, 0.4, 0.1, 0.14]]) rock(r, mossL, torso, x, y, z, 1.3, 0.5, 1.2);
-  const heart = mesh(new THREE.OctahedronGeometry(0.19), core, 0, -0.05, TR[2] - 0.02, torso); heart.scale.set(0.85, 1.35, 0.6);
-  // jagged, uneven cracks: a couple run out from the heart, others split the stone on their own
-  for (const path of [[[0.1, 0.16], [0.16, 0.3], [0.33, 0.36], [0.38, 0.55]], [[-0.12, -0.1], [-0.3, -0.04], [-0.36, -0.24], [-0.52, -0.3]],
-    [[-0.42, 0.42], [-0.3, 0.3], [-0.36, 0.14]], [[0.5, -0.05], [0.6, -0.22], [0.52, -0.4]], [[0.06, -0.24], [0.14, -0.4], [0.06, -0.55]]])
-    for (let i = 1; i < path.length; i++) crack(torso, TR[0], TR[1], TR[2], ...path[i - 1], ...path[i], 0.032);
-  // head: small, set low into the shoulders, glowing eye slits under a heavy brow
-  const head = new THREE.Group(); head.position.set(0, 0.78, 0.5); torso.add(head);
+  // torso: separate stones stacked with small gaps, a wide hip stone, a narrow waist stone, then a broad chest stone
+  // that leans forward and carries the shoulders; a dark core inside shows through the gaps
+  const torso = new THREE.Group(); torso.position.set(0, 1.0, 0); body.add(torso);
+  rock(0.32, stoneD, torso, 0, 0.5, 0, 1.05, 1.8, 0.9);    // core
+  const layer = (y, z, tilt, r, sx, sy, sz, m = stone) => {   // a stone with its own frame, so cracks can sit on it
+    const g = new THREE.Group(); g.position.set(0, y, z); g.rotation.x = tilt; torso.add(g);
+    rock(r, m, g, 0, 0, 0, sx, sy, sz);
+    return Object.assign(g, { R: [r * sx, r * sy, r * sz] });
+  };
+  const hips = layer(0, -0.02, 0, 0.4, 1.5, 0.43, 1.0, stoneD);
+  const waist = layer(0.385, 0.04, 0.06, 0.38, 1.15, 0.47, 0.9);
+  const chest = layer(1.0, 0.1, 0.15, 0.5, 1.7, 0.8, 1.2);
+  rock(0.45, stoneD, chest, 0, 0.06, -0.5, 1.3, 0.75, 0.8);                    // back hump
+  for (const [x, y, z, r] of [[-0.5, 0.3, -0.25, 0.26], [0.5, 0.28, -0.3, 0.24], [0, 0.34, -0.42, 0.28], [0.1, 0.22, -0.8, 0.24]]) rock(r, moss, chest, x, y, z, 1.2, 0.45, 1.1);
+  for (const [g, x, y, z, r] of [[chest, -0.72, 0.18, 0.25, 0.15], [waist, 0.36, 0.1, 0.12, 0.12], [hips, -0.48, 0.08, 0.2, 0.12]]) rock(r, mossL, g, x, y, z, 1.3, 0.5, 1.2);
+  const heart = mesh(new THREE.OctahedronGeometry(0.18), core, 0, -0.08, chest.R[2] - 0.04, chest); heart.scale.set(0.85, 1.25, 0.6);
+  // jagged, uneven cracks: a couple run out from the heart, others split the stones on their own
+  for (const [g, paths] of [
+    [chest, [[[0.1, 0.04], [0.18, 0.16], [0.34, 0.2], [0.42, 0.34]], [[-0.12, -0.14], [-0.28, -0.08], [-0.36, -0.22], [-0.52, -0.26]], [[-0.4, 0.3], [-0.3, 0.18], [-0.36, 0.06]], [[0.56, 0.0], [0.64, -0.14], [0.56, -0.28]]]],
+    [waist, [[[-0.08, 0.12], [0.02, 0.02], [0.14, -0.06], [0.1, -0.16]]]],
+    [hips, [[[0.18, 0.08], [0.28, -0.02], [0.24, -0.12]], [[-0.3, 0.1], [-0.4, -0.04]]]]])
+    for (const path of paths) for (let i = 1; i < path.length; i++) crack(g, ...g.R, ...path[i - 1], ...path[i], 0.03);
+  // head: small, set low into the top of the chest, glowing eye slits under a heavy brow
+  const head = new THREE.Group(); head.position.set(0, 1.4, 0.68); torso.add(head);
   rock(0.3, stone, head, 0, 0, 0, 1.15, 0.85, 1);
   const brow = mesh(new THREE.BoxGeometry(0.46, 0.09, 0.12), stoneD, 0, 0.09, 0.22, head); brow.rotation.x = 0.25;
   for (const s of [-1, 1]) { const e = mesh(new THREE.BoxGeometry(0.1, 0.035, 0.04), rune, s * 0.11, 0.015, 0.28, head); e.rotation.z = s * -0.18; e.castShadow = false; }   // eye slits
   rock(0.17, mossL, head, 0.04, 0.22, -0.04, 1.3, 0.5, 1.2);
   // long arms: shoulder boulder, upper arm, forearm, a big fist whose knuckles reach the ground
   const arms = [-1, 1].map(s => {
-    const g = new THREE.Group(); g.position.set(s * 1.0, 1.9, 0.08); body.add(g);
+    const g = new THREE.Group(); g.position.set(s * 1.05, 1.92, 0.1); body.add(g);
     rock(0.44, stoneD, g, s * 0.05, 0.05, 0, 1, 0.9, 1);
     rock(0.22, moss, g, s * 0.05, 0.38, -0.05, 1.4, 0.45, 1.3);
     rock(0.28, stone, g, s * 0.06, -0.4, 0.04, 1, 1.25, 1);
@@ -109,7 +119,7 @@ export function makeGolem(kit) {
   let glow = null, waveAt = -1, wave = { to: 0, dur: 1 }, pounded = 0, lastMode = "", lastModeT = 0;
   return {
     root, head, zzzY: 0.85, timing,
-    hit: new THREE.Vector3(0, 1.2, 0.6),           // front of the torso
+    hit: new THREE.Vector3(0, 1.85, 0.6),          // front of the chest stone
     recoil: { stiff: 110, damp: 18, kick: 0.42 },    // heavy: a stiff jolt, hardly any wobble
 
     scenery() {   // standing stones and amber crystals behind it
