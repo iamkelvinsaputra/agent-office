@@ -503,7 +503,10 @@ export function createFantasyTheme(ctx) {
     return f;
   }
   const tv = new THREE.Vector3(), tv2 = new THREE.Vector3();
-  const chest = () => new THREE.Vector3(0.75 * Math.cos(A0), 1.5, 0.75 * Math.sin(A0));
+  // where a hit lands on the Foe (its own hit point, without the recoil), turned to face an attacker standing at
+  // xz angle a around the Foe (default: straight toward the Party)
+  const chest = (a = A0) => { foe.root.updateMatrix(); return foe.hit.clone().applyAxisAngle(UP, A0 - a).applyMatrix4(foe.root.matrix); };
+  const UP = new THREE.Vector3(0, 1, 0);
   function burst(p, col, size, dur = 0.35, peak = 1) {
     const b = new THREE.Mesh(GEO.ball, glowMat(col)); b.position.copy(p);
     addFx(b, dur, f => { b.scale.setScalar(size * (0.3 + f)); b.material.opacity = peak * (1 - f); });
@@ -541,7 +544,7 @@ export function createFantasyTheme(ctx) {
     const a = new THREE.Mesh(GEO.arcG, glowMat("#ffffff"));
     const d = Math.hypot(e.x, e.y), ux = -e.x / d, uy = -e.y / d;
     a.position.set(e.x + ux * 0.62, 0.7, e.y + uy * 0.62); a.rotation.set(0, Math.atan2(ux, uy) + Math.PI / 2, 0.4);
-    const from = new THREE.Vector3(e.x, 0.7, e.y), at = a.position.clone();
+    const from = new THREE.Vector3(e.x, 0.7, e.y), at = chest(Math.atan2(e.y, e.x));
     addFx(a, 0.25, f => { a.material.opacity = 1 - f; a.scale.setScalar(0.8 + f * 0.6); }, () => hitFoe(from, at, 0.5));
   }
   function heal(target, from) {

@@ -109,6 +109,7 @@ export function makeDragon(kit) {
   let acc = 0;
   return {
     root, head, zzzY: 0.9, timing,
+    hit: new THREE.Vector3(0, 1.2, 0.6),           // front of the chest
     recoil: { stiff: 55, damp: 5, kick: 0.5 },      // springy: it wobbles back into place
 
     scenery() {   // the hoard behind it

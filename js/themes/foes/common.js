@@ -11,8 +11,10 @@ export const easeBy = k => (o, key, v) => { o[key] += (v - o[key]) * k; };   // 
 
 // A Foe is made by make(kit) with kit = { own, mesh, mat, addFx, glowMat, GEO, rnd, group, reach } (the theme's
 // helpers; reach() is how far out the Party stands) and returns
-//   { root, head, zzzY (how high the "zzz" floats over head), timing: {windup, bigAttack, recover, taunt},
+//   { root, head, zzzY (how high the "zzz" floats over head), hit (where the Party's hits land: a Vector3 on the
+//     front of its body, in root's own frame, i.e. before the Foe scale and turn), timing: {windup, bigAttack, recover, taunt},
 //     recoil: {stiff, damp, kick}, scenery(), animate(state), onHit?(at, dir) }.
+// Fireballs and arrows aim at hit; a sword slash lands at hit turned to face the warrior.
 // The theme runs the shared rhythm (Asleep / ready / windup → bigAttack → recover / taunt) and the hit recoil;
 // the Foe poses itself from the state it is given: { t, dt, m, sleep, mode, modeT, dir, hit, fighters,
 // flinch(test), reduceMotion }. Hit reactions are movement only, never a change in

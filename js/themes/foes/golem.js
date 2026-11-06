@@ -109,6 +109,7 @@ export function makeGolem(kit) {
   let glow = null, waveAt = -1, wave = { to: 0, dur: 1 }, pounded = 0, lastMode = "", lastModeT = 0;
   return {
     root, head, zzzY: 0.85, timing,
+    hit: new THREE.Vector3(0, 1.2, 0.6),           // front of the torso
     recoil: { stiff: 110, damp: 18, kick: 0.42 },    // heavy: a stiff jolt, hardly any wobble
 
     scenery() {   // standing stones and amber crystals behind it
