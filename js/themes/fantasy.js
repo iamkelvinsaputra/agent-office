@@ -194,14 +194,15 @@ export function createFantasyTheme(ctx) {
       helm.rotation.x = -0.12;
       const band = part(new THREE.TorusGeometry(HR * 1.08, 0.012, 8, 36), gold, F.skull, 0, HR * 0.3, -0.02); band.rotation.x = Math.PI / 2 - 0.12;
       const plume = part(sphere(0.05, 16, 12), tab, F.skull, 0, HR * 1.18, -0.04); plume.scale.set(0.45, 0.9, 1.9);
-      // sword in the right hand, shield on the left arm
-      const sw = new THREE.Group(); sw.position.set(0, -0.1, 0); sw.rotation.x = 2.356; R.el.add(sw);
+      // sword in the right hand, its blade carried along the forearm and a little forward (clear of the legs and of
+      // the helmet when raised); shield on the left arm
+      const sw = new THREE.Group(); sw.position.set(0, -0.1, 0); sw.rotation.x = 2.75; R.el.add(sw);
       part(new THREE.CylinderGeometry(0.012, 0.012, 0.07, 8), vinyl(LEATHER), sw);
       part(sphere(0.018, 10, 8), gold, sw, 0, -0.045, 0);
       part(rounded(0.11, 0.018, 0.026, 0.006), gold, sw, 0, 0.04, 0);
       part(new THREE.BoxGeometry(0.01, 0.26, 0.036), steel, sw, 0, 0.18, 0);
       part(new THREE.ConeGeometry(0.0255, 0.05, 4), steel, sw, 0, 0.335, 0).scale.set(0.4, 1, 1);
-      const sh = new THREE.Group(); sh.position.set(0.05, -0.06, 0.01); sh.rotation.z = Math.PI / 2; Lf.el.add(sh);
+      const sh = new THREE.Group(); sh.position.set(0.065, -0.06, 0.01); sh.rotation.z = Math.PI / 2; Lf.el.add(sh);
       part(new THREE.CylinderGeometry(0.12, 0.12, 0.022, 28), tab, sh);
       part(new THREE.TorusGeometry(0.12, 0.012, 8, 32), steel, sh).rotation.x = Math.PI / 2;
       part(sphere(0.032, 14, 10), steel, sh, 0, -0.014, 0).scale.y = 0.6;
@@ -288,7 +289,7 @@ export function createFantasyTheme(ctx) {
       if (c === "mage" || c === "priest") {   // and plant the staff a little forward and out, clear of the hat and head
         Object.assign(Lh, { ...wave, uz: -wave.uz, fz: -wave.fz });
         Object.assign(R, { ux: -0.35, uz: -0.42, fx: -0.35, fz: 0 });
-      } else Object.assign(R, wave);
+      } else Object.assign(R, wave, c === "warrior" ? { uz: -2.1 } : {});   // the warrior's sword hand stays out from the helmet
       if (c === "archer") Object.assign(Lh, { ux: -0.3, uz: 0.15, fx: -0.2 });
       return;
     }
@@ -297,7 +298,8 @@ export function createFantasyTheme(ctx) {
     if (c === "warrior") {
       const ph = frac((t + seed * 7) / 1.4);
       const ux = ph < 0.55 ? lerp(-0.4, -2.7, smooth(0, 0.55, ph)) : ph < 0.7 ? lerp(-2.7, -0.7, smooth(0.55, 0.7, ph)) : lerp(-0.7, -0.4, smooth(0.7, 1, ph));
-      Object.assign(R, { ux: ux * m || -0.6, uz: -0.15, fx: -0.35, fz: 0 });
+      const high = smooth(1.2, 2.7, -ux * m);   // near the top of the swing the arm swings a little out, so hand and sword pass beside the helmet
+      Object.assign(R, { ux: ux * m || -0.6, uz: -0.15 - 0.7 * high, fx: -0.35, fz: 0 });
       Object.assign(Lh, { ux: -1.0, uz: 0.35, fx: -1.0, fz: 0.3 });
       p.lean = ph > 0.55 && ph < 0.8 ? 0.12 * m : 0;
     } else if (c === "mage") {
