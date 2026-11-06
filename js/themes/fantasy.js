@@ -39,7 +39,7 @@ export function createFantasyTheme(ctx) {
   const fx = [];                 // live effects (fireballs, arrows, sparkles, breath)
   let foeName = FOES[ctx.foe] ? ctx.foe : "dragon";
   let foe = null, holder = null, rhythm = null;   // the Foe, the group its recoil moves, and its rhythm state
-  let fireLight = null, flames = [], portalDisc = null, lavaMat = null;
+  let fireLight = null, flames = [], portalDisc = null;
 
   // ---------- sky backdrop ----------
   const skyCv = document.createElement("canvas"); skyCv.width = skyCv.height = 512;
@@ -338,12 +338,10 @@ export function createFantasyTheme(ctx) {
   }
   function rng(seed) { let s = seed >>> 0; return () => ((s = Math.imul(s ^ (s >>> 15), 2246822507) + 0x6d2b79f5 >>> 0) % 100000) / 100000; }
 
-  function islandTexture(r, seed) {
+  function islandTexture(r, seed, hull) {
     const S = 1024, c = document.createElement("canvas"); c.width = c.height = S;
-    const g = c.getContext("2d"), e = document.createElement("canvas"); e.width = e.height = S;
-    const ge = e.getContext("2d"), rnd = rng(seed), px = v => (v / (2 * r) + 0.5) * S;
+    const g = c.getContext("2d"), rnd = rng(seed), px = v => (v / (2 * r) + 0.5) * S, py = v => (0.5 - v / (2 * r)) * S;   // canvas rows run opposite to the texture's v
     g.fillStyle = "#a99487"; g.fillRect(0, 0, S, S);
-    ge.fillStyle = "#000"; ge.fillRect(0, 0, S, S);
     // flagstones
     for (let i = 0; i < 260; i++) {
       const x = rnd() * S, y = rnd() * S, w = 30 + rnd() * 60, h = 24 + rnd() * 50;
@@ -351,23 +349,23 @@ export function createFantasyTheme(ctx) {
       g.beginPath(); g.ellipse(x, y, w / 2, h / 2, rnd() * 3, 0, 7); g.fill();
     }
     g.globalAlpha = 1;
-    // glowing lava cracks
-    const cracks = [];
-    for (let i = 0; i < 9; i++) {
-      const a = rnd() * Math.PI * 2, d = r * (0.25 + rnd() * 0.6);
-      let x = d * Math.cos(a), y = d * Math.sin(a);
-      const pts = [[x, y]];
-      let h = rnd() * Math.PI * 2;
-      for (let k = 0; k < 7; k++) { h += (rnd() - 0.5) * 1.4; x += Math.cos(h) * 0.35; y += Math.sin(h) * 0.35; pts.push([x, y]); }
-      cracks.push(pts);
+    // grass around the edge, a stone clearing in the middle with a wobbly border
+    const inner = hull.map(([x, y]) => { const a = Math.atan2(y, x), k = 0.72 + 0.03 * Math.sin(a * 7 + 2) + 0.02 * Math.sin(a * 13); return [x * k, y * k]; });
+    const trace = (pts, k) => { pts.forEach(([x, y], i) => i ? g.lineTo(px(x * k), py(y * k)) : g.moveTo(px(x * k), py(y * k))); g.closePath(); };
+    g.beginPath(); trace(hull, 1.1); trace(inner, 1); g.fillStyle = "#7cad55"; g.fill("evenodd");
+    const blob = (x, y, rad, col, alpha) => { g.fillStyle = col; g.globalAlpha = alpha; g.beginPath(); g.ellipse(px(x), py(y), rad, rad * (0.6 + rnd() * 0.4), rnd() * 3, 0, 7); g.fill(); };
+    for (let i = 0; i < inner.length * 4; i++) {   // ragged tufts straddling the border
+      const [x, y] = inner[Math.floor(rnd() * inner.length)], k = 0.96 + rnd() * 0.07;
+      blob(x * k, y * k, 5 + rnd() * 10, mix("#7cad55", "#6e9f4a", rnd()), 1);
     }
-    for (const [ctx2, col, w] of [[g, "#5a2a1e", 9], [g, "#ff8a2a", 4], [ge, "#ff6a1a", 7], [ge, "#ffd36a", 3]]) {
-      ctx2.strokeStyle = col; ctx2.lineWidth = w; ctx2.lineCap = ctx2.lineJoin = "round";
-      for (const pts of cracks) { ctx2.beginPath(); pts.forEach(([x, y], i) => i ? ctx2.lineTo(px(x), px(y)) : ctx2.moveTo(px(x), px(y))); ctx2.stroke(); }
+    for (let i = 0; i < 900; i++) {   // lighter and darker tufts across the grass
+      const [x, y] = hull[Math.floor(rnd() * hull.length)], k = 0.76 + rnd() * 0.3;
+      blob(x * k, y * k, 3 + rnd() * 7, rnd() < 0.5 ? "#9fcf6e" : "#5f9244", 0.5);
     }
-    const tex = own(new THREE.CanvasTexture(c)), emi = own(new THREE.CanvasTexture(e));
-    tex.colorSpace = emi.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
-    return { tex, emi };
+    g.globalAlpha = 1;
+    const tex = own(new THREE.CanvasTexture(c));
+    tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+    return tex;
   }
 
   function clear() {
@@ -416,11 +414,10 @@ export function createFantasyTheme(ctx) {
     hull.forEach(([x, y], i) => i ? shape.lineTo(x, y) : shape.moveTo(x, y));
     const slab = new THREE.ExtrudeGeometry(shape, { depth: 0.32, bevelEnabled: true, bevelThickness: 0.06, bevelSize: 0.08, bevelSegments: 2, curveSegments: 4 });
     slab.rotateX(Math.PI / 2);   // shape x,y -> world x,z; extrudes downward
-    const { tex, emi } = islandTexture(Ri, 99);
-    const topM = own(new THREE.MeshStandardMaterial({ map: tex, emissiveMap: emi, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.9 }));
-    lavaMat = topM;
+    const tex = islandTexture(Ri, 99, hull);
+    const topM = own(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 }));
     const map = t => { t.repeat.set(1 / (2 * Ri), 1 / (2 * Ri)); t.offset.set(0.5, 0.5); t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; };
-    map(tex); map(emi);
+    map(tex);
     const top = mesh(slab, [topM, mat("#7d6a62", 0.9)], ix, -0.06, iy); top.castShadow = false;
     // underside: jagged rock tapering to a point, following the island's outline
     const ring = [], step = Math.max(1, Math.floor(hull.length / 22));
@@ -591,7 +588,6 @@ export function createFantasyTheme(ctx) {
     if (portalDisc) portalDisc.rotation.z = -t * 1.2 * m;
     flames.forEach(f => { const k = 1 + (0.12 * Math.sin(t * 13 + f.userData.i * 2) + 0.08 * Math.sin(t * 23 + f.userData.i)) * m; f.scale.set(1 / Math.sqrt(k), k, 1 / Math.sqrt(k)); f.position.y = 0.08 + f.userData.h * k / 2; });
     if (fireLight) fireLight.intensity = (4.2 + 0.8 * Math.sin(t * 11) * m) * (1 + 0.6 * nightness(hourNow()));
-    if (lavaMat) lavaMat.emissiveIntensity = 0.75 + 0.25 * Math.sin(t * 1.7) * m;
 
     // fighters
     const fighters = [...ents.values()].filter(e => e.fig && e.phase === "seated" && e.data.state === "working" && !e.outside);
