@@ -3,6 +3,8 @@
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 import webbrowser
@@ -172,6 +174,25 @@ def default_theme():
     return theme
 
 
+def keep_awake():
+    """Keep the display (and so the Mac) awake while the server runs, via caffeinate -d.
+
+    -w ties caffeinate to this process, so it exits with the server even on a crash or kill.
+    Off with --no-caffeinate or AGENT_OFFICE_CAFFEINATE=0; skipped quietly where caffeinate doesn't exist.
+    Returns True if it started."""
+    if "--no-caffeinate" in sys.argv or os.environ.get("AGENT_OFFICE_CAFFEINATE") == "0":
+        return False
+    exe = shutil.which("caffeinate")
+    if not exe:
+        return False
+    try:
+        subprocess.Popen([exe, "-d", "-w", str(os.getpid())],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        return False
+    return True
+
+
 def main():
     url = "http://127.0.0.1:%d/" % PORT
     theme = default_theme()
@@ -183,7 +204,8 @@ def main():
         if "--no-open" not in sys.argv:
             webbrowser.open(url)
         return
-    print("Agent Office running at %s  (Ctrl-C to stop)" % url)
+    awake = "keeping display awake; " if keep_awake() else ""
+    print("Agent Office running at %s  (%sCtrl-C to stop)" % (url, awake))
     if "--no-open" not in sys.argv:
         webbrowser.open(url)
     try:

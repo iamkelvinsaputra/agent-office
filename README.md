@@ -63,6 +63,10 @@ Set `AGENT_OFFICE_PORT` to use another port. To start in the fantasy theme in br
 theme yet, run `agent-office --theme fantasy` (or set `AGENT_OFFICE_THEME=fantasy`). If the server is already
 running, stop it first so the new default applies.
 
+While it runs on macOS, `agent-office` also runs `caffeinate -d` so the Mac doesn't sleep (the screen stays on,
+but you can turn the brightness all the way down). Closing the lid on battery still puts it to sleep. Pass
+`--no-caffeinate` (or set `AGENT_OFFICE_CAFFEINATE=0`) to turn this off.
+
 ## How it works
 
 | File | Role |
